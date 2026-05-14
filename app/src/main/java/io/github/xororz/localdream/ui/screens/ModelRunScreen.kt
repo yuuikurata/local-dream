@@ -1794,7 +1794,7 @@ fun ModelRunScreen(
                                                     value = batchCounts.toFloat(),
                                                     onValueChange = onBatchCountsChange,
                                                     valueRange = 1f..100f,
-                                                    steps = 8,
+                                                    steps = 98,
                                                     modifier = Modifier.fillMaxWidth()
                                                 )
                                             }

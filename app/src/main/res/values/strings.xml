@@ -174,6 +174,8 @@
     <string name="import_clear_clipboard_hint">Remove the shared payload from the clipboard after closing this dialog, whether you apply or cancel.</string>
     <string name="import_apply">Apply</string>
     <string name="import_applied">Parameters applied</string>
+    <string name="import_from_clipboard">Import from clipboard</string>
+    <string name="import_no_params">No shared parameters found on the clipboard</string>
 
     <!-- Error Messages -->
     <string name="error_download_failed">Download failed: %s</string>
@@ -275,6 +277,11 @@
     <string name="switch_resolution">Switch Resolution</string>
     <string name="switch_resolution_hint">Switching resolution will restart the backend service and interrupt current generation. Continue?</string>
     <string name="resolution">Resolution</string>
+    <string name="aspect_ratio">Aspect Ratio</string>
+    <string name="aspect_ratio_custom">Custom</string>
+    <string name="aspect_ratio_custom_title">Custom Aspect Ratio</string>
+    <string name="aspect_ratio_custom_hint">Enter two positive integers (e.g. 21 9)</string>
+    <string name="aspect_ratio_invalid">Invalid ratio. Must be two positive integers.</string>
     <string name="scheduler">Scheduler</string>
     <string name="extracting">Extracting…</string>
 

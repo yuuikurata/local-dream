@@ -106,9 +106,15 @@ class BackgroundGenerationService : Service() {
         val seed = if (intent.hasExtra("seed")) intent.getLongExtra("seed", 0) else null
         val width = intent.getIntExtra("width", 512)
         val height = intent.getIntExtra("height", 512)
+        // Effective dimensions = target crop size for SDXL aspect-pad mode,
+        // or equal to width/height otherwise. Used for decoding progress
+        // previews which the backend already crops to the visible region.
+        val effectiveWidth = intent.getIntExtra("effective_width", width)
+        val effectiveHeight = intent.getIntExtra("effective_height", height)
         val denoiseStrength = intent.getFloatExtra("denoise_strength", 0.6f)
         val useOpenCL = intent.getBooleanExtra("use_opencl", false)
         val scheduler = intent.getStringExtra("scheduler") ?: "dpm"
+        val aspectRatio = intent.getStringExtra("aspect_ratio") ?: "1:1"
 
         val image = if (intent.getBooleanExtra("has_image", false)) {
             try {
@@ -162,11 +168,14 @@ class BackgroundGenerationService : Service() {
                 seed,
                 width,
                 height,
+                effectiveWidth,
+                effectiveHeight,
                 image,
                 mask,
                 denoiseStrength,
                 useOpenCL,
-                scheduler
+                scheduler,
+                aspectRatio
             )
         }
 
@@ -181,11 +190,14 @@ class BackgroundGenerationService : Service() {
         seed: Long?,
         width: Int,
         height: Int,
+        effectiveWidth: Int,
+        effectiveHeight: Int,
         image: String?,
         mask: String?,
         denoiseStrength: Float,
         useOpenCL: Boolean,
-        scheduler: String
+        scheduler: String,
+        aspectRatio: String
     ) = withContext(Dispatchers.IO) {
         try {
             updateState(GenerationState.Progress(0f))
@@ -208,6 +220,7 @@ class BackgroundGenerationService : Service() {
                 put("scheduler", scheduler)
                 put("show_diffusion_process", showProcess)
                 put("show_diffusion_stride", showStride)
+                put("aspect_ratio", aspectRatio)
                 seed?.let { put("seed", it) }
                 image?.let { put("image", it) }
                 mask?.let { put("mask", it) }
@@ -268,8 +281,13 @@ class BackgroundGenerationService : Service() {
                                     if (b64Img.isNotEmpty()) {
                                         try {
                                             val imageBytes = Base64.getDecoder().decode(b64Img)
-                                            val pixels = IntArray(width * height)
-                                            for (i in 0 until width * height) {
+                                            // Progress previews are cropped to (effectiveWidth,
+                                            // effectiveHeight) by the backend so the SDXL aspect-pad
+                                            // path doesn't ship the 1024 canvas every step.
+                                            val pw = effectiveWidth
+                                            val ph = effectiveHeight
+                                            val pixels = IntArray(pw * ph)
+                                            for (i in 0 until pw * ph) {
                                                 val index = i * 3
                                                 if (index + 2 < imageBytes.size) {
                                                     val r = imageBytes[index].toInt() and 0xFF
@@ -279,8 +297,8 @@ class BackgroundGenerationService : Service() {
                                                         (0xFF shl 24) or (r shl 16) or (g shl 8) or b
                                                 }
                                             }
-                                            bitmap = createBitmap(width, height)
-                                            bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+                                            bitmap = createBitmap(pw, ph)
+                                            bitmap.setPixels(pixels, 0, pw, 0, 0, pw, ph)
                                         } catch (e: Exception) {
                                             Log.e(
                                                 "BgGenService",

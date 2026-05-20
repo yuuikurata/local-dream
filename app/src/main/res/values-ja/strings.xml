@@ -160,6 +160,8 @@
     <string name="import_clear_clipboard_hint">適用またはキャンセルでダイアログを閉じた後、クリップボードから共有内容を削除します。</string>
     <string name="import_apply">適用</string>
     <string name="import_applied">パラメータを適用しました</string>
+    <string name="import_from_clipboard">クリップボードからインポート</string>
+    <string name="import_no_params">クリップボードに共有パラメータが見つかりません</string>
     <string name="error_download_failed">ダウンロード失敗: %s</string>
     <string name="error_request_failed">リクエスト失敗: %s</string>
     <string name="unknown_error">不明なエラー</string>
@@ -247,6 +249,11 @@
     <string name="switch_resolution">解像度の切り替え</string>
     <string name="switch_resolution_hint">解像度を切り替えると、バックエンドサービスが再起動し、現在の生成が中断されます。続行しますか？</string>
     <string name="resolution">解像度</string>
+    <string name="aspect_ratio">アスペクト比</string>
+    <string name="aspect_ratio_custom">カスタム</string>
+    <string name="aspect_ratio_custom_title">カスタムアスペクト比</string>
+    <string name="aspect_ratio_custom_hint">正の整数を2つ入力（例: 21 9）</string>
+    <string name="aspect_ratio_invalid">無効な比率です。2つの正の整数を入力してください。</string>
     <string name="scheduler">スケジューラー</string>
     <string name="extracting">抽出中…</string>
 

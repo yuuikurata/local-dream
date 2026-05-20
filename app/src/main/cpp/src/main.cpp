@@ -1,5 +1,6 @@
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -119,6 +120,23 @@ float denoise_strength;
 bool request_img2img;
 bool request_has_mask;
 bool use_opencl;
+
+// SDXL aspect-ratio padded inpaint: when a non-1:1 ratio is requested for an
+// SDXL model, the pipeline still generates a 1024x1024 canvas, masks the
+// outer black border, and crops the centered region before returning.
+bool aspect_pad_inpaint = false;
+int target_crop_width = 0;
+int target_crop_height = 0;
+// True only when the base image is the synthetic white-on-black canvas
+// (txt2img path); this lets the VAE-encoder cache safely persist the encoded
+// latents per target size. False when the user uploaded their own image
+// (img2img / inpaint), where the base image is content-dependent.
+bool aspect_pad_synthetic_base = false;
+// True when the request actually carried a "mask" field (real inpaint).
+// False when the mask was auto-installed by the aspect-padding pipeline
+// (txt2img / img2img-with-aspect). Used to decide whether to laplacian-blend
+// the decoded image against the original after generation.
+bool user_supplied_mask = false;
 
 bool cvt_model = false;
 bool show_diffusion_process = false;
@@ -2058,87 +2076,142 @@ GenerationResult generateImage(
         std::vector<float> vae_enc_mean(1 * 4 * sample_width * sample_height);
         std::vector<float> vae_enc_std(1 * 4 * sample_width * sample_height);
 
-        if (use_mnn) {
-          MNN::Interpreter *currentVaeEncoderInterpreter =
-              MNN::Interpreter::createFromFile(vaeEncoderPath.c_str());
-          if (!currentVaeEncoderInterpreter)
-            throw std::runtime_error("Failed MNN VAE Enc create");
-
-          MNN::ScheduleConfig cfg_vae_enc;
-          MNN::BackendConfig bkCfg_vae_enc;
-          if (use_opencl) {
-            auto cache_file = modelDir + "/vae_enc_cache.mnnc." +
-                              std::to_string(output_width);
-            currentVaeEncoderInterpreter->setCacheFile(cache_file.c_str());
-            cfg_vae_enc.type = MNN_FORWARD_OPENCL;
-            cfg_vae_enc.mode = MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_FAST;
-            bkCfg_vae_enc.precision = MNN::BackendConfig::Precision_Low;
-          } else {
-            cfg_vae_enc.type = MNN_FORWARD_CPU;
-            cfg_vae_enc.numThread = 4;
-            bkCfg_vae_enc.memory = MNN::BackendConfig::Memory_Low;
+        // For SDXL aspect-ratio padded inpaint with a synthetic base
+        // (txt2img path) the VAE encoder input is a deterministic
+        // white-on-black canvas keyed by target_crop size, so the (mean,
+        // std) latent stats are reproducible. Cache them to disk so we pay
+        // the encoder cost only once per (model, target size).
+        // User-supplied images (img2img / inpaint) are content-dependent
+        // and skip the cache.
+        std::string black_latent_cache_path;
+        bool loaded_from_cache = false;
+        if (aspect_pad_inpaint && aspect_pad_synthetic_base &&
+            !modelDir.empty()) {
+          black_latent_cache_path = modelDir + "/aspect_latent_" +
+                                    std::to_string(target_crop_width) + "x" +
+                                    std::to_string(target_crop_height) + ".bin";
+          std::ifstream ifs(black_latent_cache_path, std::ios::binary);
+          if (ifs) {
+            ifs.seekg(0, std::ios::end);
+            std::streamsize sz = ifs.tellg();
+            size_t expected =
+                (vae_enc_mean.size() + vae_enc_std.size()) * sizeof(float);
+            if (sz == (std::streamsize)expected) {
+              ifs.seekg(0);
+              ifs.read(reinterpret_cast<char *>(vae_enc_mean.data()),
+                       vae_enc_mean.size() * sizeof(float));
+              ifs.read(reinterpret_cast<char *>(vae_enc_std.data()),
+                       vae_enc_std.size() * sizeof(float));
+              loaded_from_cache = ifs.good();
+              if (loaded_from_cache) {
+                std::cout << "Loaded aspect-canvas VAE latent from cache: "
+                          << black_latent_cache_path << std::endl;
+              }
+            }
           }
-          bkCfg_vae_enc.power = MNN::BackendConfig::Power_High;
-          cfg_vae_enc.backendConfig = &bkCfg_vae_enc;
-
-          MNN::Session *currentVaeEncSession =
-              currentVaeEncoderInterpreter->createSession(cfg_vae_enc);
-          if (!currentVaeEncSession)
-            throw std::runtime_error("Failed create temp MNN VAE Enc session!");
-
-          auto input = currentVaeEncoderInterpreter->getSessionInput(
-              currentVaeEncSession, "input");
-          currentVaeEncoderInterpreter->resizeTensor(
-              input, {1, 3, output_height, output_width});
-          currentVaeEncoderInterpreter->resizeSession(currentVaeEncSession);
-          if (use_opencl) {
-            currentVaeEncoderInterpreter->updateCacheFile(currentVaeEncSession);
-          }
-          currentVaeEncoderInterpreter->releaseModel();
-
-          auto input_nchw_tensor = new MNN::Tensor(input, MNN::Tensor::CAFFE);
-          auto mean_t = currentVaeEncoderInterpreter->getSessionOutput(
-              currentVaeEncSession, "mean");
-          auto std_t = currentVaeEncoderInterpreter->getSessionOutput(
-              currentVaeEncSession, "std");
-          auto mean_nchw_tensor = new MNN::Tensor(mean_t, MNN::Tensor::CAFFE);
-          auto std_nchw_tensor = new MNN::Tensor(std_t, MNN::Tensor::CAFFE);
-
-          memcpy(input_nchw_tensor->host<float>(), img_data.data(),
-                 img_data.size() * sizeof(float));
-          input->copyFromHostTensor(input_nchw_tensor);
-          currentVaeEncoderInterpreter->runSession(currentVaeEncSession);
-
-          mean_t->copyToHostTensor(mean_nchw_tensor);
-          std_t->copyToHostTensor(std_nchw_tensor);
-          memcpy(vae_enc_mean.data(), mean_nchw_tensor->host<float>(),
-                 vae_enc_mean.size() * sizeof(float));
-          memcpy(vae_enc_std.data(), std_nchw_tensor->host<float>(),
-                 vae_enc_std.size() * sizeof(float));
-
-          delete input_nchw_tensor;
-          delete mean_nchw_tensor;
-          delete std_nchw_tensor;
-
-          currentVaeEncoderInterpreter->releaseSession(currentVaeEncSession);
-          delete currentVaeEncoderInterpreter;
-        } else {
-          if (sdxl_lowram) loadSdxlQnnVaeEncoderIfNeeded();
-          if (!vaeEncoderApp)
-            throw std::runtime_error("Global vaeEncoderApp not init!");
-          if (sdxl_mode) {
-            if (StatusCode::SUCCESS !=
-                vaeEncoderApp->executeVaeEncoderGraphsSDXL(
-                    img_data.data(), vae_enc_mean.data(), vae_enc_std.data()))
-              throw std::runtime_error("QNN VAE enc SDXL exec failed");
-          } else {
-            if (StatusCode::SUCCESS !=
-                vaeEncoderApp->executeVaeEncoderGraphs(
-                    img_data.data(), vae_enc_mean.data(), vae_enc_std.data()))
-              throw std::runtime_error("QNN VAE enc exec failed");
-          }
-          if (sdxl_lowram) releaseSdxlQnnVaeEncoder();
         }
+
+        if (!loaded_from_cache) {
+          if (use_mnn) {
+            MNN::Interpreter *currentVaeEncoderInterpreter =
+                MNN::Interpreter::createFromFile(vaeEncoderPath.c_str());
+            if (!currentVaeEncoderInterpreter)
+              throw std::runtime_error("Failed MNN VAE Enc create");
+
+            MNN::ScheduleConfig cfg_vae_enc;
+            MNN::BackendConfig bkCfg_vae_enc;
+            if (use_opencl) {
+              auto cache_file = modelDir + "/vae_enc_cache.mnnc." +
+                                std::to_string(output_width);
+              currentVaeEncoderInterpreter->setCacheFile(cache_file.c_str());
+              cfg_vae_enc.type = MNN_FORWARD_OPENCL;
+              cfg_vae_enc.mode = MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_FAST;
+              bkCfg_vae_enc.precision = MNN::BackendConfig::Precision_Low;
+            } else {
+              cfg_vae_enc.type = MNN_FORWARD_CPU;
+              cfg_vae_enc.numThread = 4;
+              bkCfg_vae_enc.memory = MNN::BackendConfig::Memory_Low;
+            }
+            bkCfg_vae_enc.power = MNN::BackendConfig::Power_High;
+            cfg_vae_enc.backendConfig = &bkCfg_vae_enc;
+
+            MNN::Session *currentVaeEncSession =
+                currentVaeEncoderInterpreter->createSession(cfg_vae_enc);
+            if (!currentVaeEncSession)
+              throw std::runtime_error(
+                  "Failed create temp MNN VAE Enc session!");
+
+            auto input = currentVaeEncoderInterpreter->getSessionInput(
+                currentVaeEncSession, "input");
+            currentVaeEncoderInterpreter->resizeTensor(
+                input, {1, 3, output_height, output_width});
+            currentVaeEncoderInterpreter->resizeSession(currentVaeEncSession);
+            if (use_opencl) {
+              currentVaeEncoderInterpreter->updateCacheFile(
+                  currentVaeEncSession);
+            }
+            currentVaeEncoderInterpreter->releaseModel();
+
+            auto input_nchw_tensor = new MNN::Tensor(input, MNN::Tensor::CAFFE);
+            auto mean_t = currentVaeEncoderInterpreter->getSessionOutput(
+                currentVaeEncSession, "mean");
+            auto std_t = currentVaeEncoderInterpreter->getSessionOutput(
+                currentVaeEncSession, "std");
+            auto mean_nchw_tensor = new MNN::Tensor(mean_t, MNN::Tensor::CAFFE);
+            auto std_nchw_tensor = new MNN::Tensor(std_t, MNN::Tensor::CAFFE);
+
+            memcpy(input_nchw_tensor->host<float>(), img_data.data(),
+                   img_data.size() * sizeof(float));
+            input->copyFromHostTensor(input_nchw_tensor);
+            currentVaeEncoderInterpreter->runSession(currentVaeEncSession);
+
+            mean_t->copyToHostTensor(mean_nchw_tensor);
+            std_t->copyToHostTensor(std_nchw_tensor);
+            memcpy(vae_enc_mean.data(), mean_nchw_tensor->host<float>(),
+                   vae_enc_mean.size() * sizeof(float));
+            memcpy(vae_enc_std.data(), std_nchw_tensor->host<float>(),
+                   vae_enc_std.size() * sizeof(float));
+
+            delete input_nchw_tensor;
+            delete mean_nchw_tensor;
+            delete std_nchw_tensor;
+
+            currentVaeEncoderInterpreter->releaseSession(currentVaeEncSession);
+            delete currentVaeEncoderInterpreter;
+          } else {
+            if (sdxl_lowram) loadSdxlQnnVaeEncoderIfNeeded();
+            if (!vaeEncoderApp)
+              throw std::runtime_error("Global vaeEncoderApp not init!");
+            if (sdxl_mode) {
+              if (StatusCode::SUCCESS !=
+                  vaeEncoderApp->executeVaeEncoderGraphsSDXL(
+                      img_data.data(), vae_enc_mean.data(), vae_enc_std.data()))
+                throw std::runtime_error("QNN VAE enc SDXL exec failed");
+            } else {
+              if (StatusCode::SUCCESS !=
+                  vaeEncoderApp->executeVaeEncoderGraphs(
+                      img_data.data(), vae_enc_mean.data(), vae_enc_std.data()))
+                throw std::runtime_error("QNN VAE enc exec failed");
+            }
+            if (sdxl_lowram) releaseSdxlQnnVaeEncoder();
+          }
+
+          // Persist the freshly-computed aspect-canvas latent stats for reuse
+          // on subsequent runs at the same target size.
+          if (aspect_pad_inpaint && !black_latent_cache_path.empty()) {
+            std::ofstream ofs(black_latent_cache_path, std::ios::binary);
+            if (ofs) {
+              ofs.write(reinterpret_cast<const char *>(vae_enc_mean.data()),
+                        vae_enc_mean.size() * sizeof(float));
+              ofs.write(reinterpret_cast<const char *>(vae_enc_std.data()),
+                        vae_enc_std.size() * sizeof(float));
+              if (ofs.good()) {
+                std::cout << "Saved aspect-canvas VAE latent to cache: "
+                          << black_latent_cache_path << std::endl;
+              }
+            }
+          }
+        }  // !loaded_from_cache
 
         auto mean = xt::adapt(vae_enc_mean, shape);
         auto std_dev = xt::adapt(vae_enc_std, shape);
@@ -2235,15 +2308,41 @@ GenerationResult generateImage(
 
       original_latents = img_lat_scaled;
       start_step = steps * (1.0f - denoise_strength);
+      // Clamp so timesteps(start_step) below is never out-of-bounds. With
+      // denoise_strength = 0 (often used to inspect the base image) the
+      // unclamped value would equal `steps` and the OOB read produced
+      // garbage noise that decoded to a random pattern.
+      if (start_step >= steps) start_step = steps - 1;
+      if (start_step < 0) start_step = 0;
       total_run_steps -= start_step;
       scheduler->set_begin_index(start_step);
       xt::xarray<int> t = {(int)(timesteps(start_step))};
+
+      // For SYNTHETIC-base aspect padding (txt2img path) we replace the
+      // mask region with a txt2img-style pure-noise prior so the generated
+      // region doesn't inherit the black-canvas bias from VAE encoding.
+      // Do NOT do this for user-image base (img2img / inpaint): there the
+      // mask region should start from the user's actual image (noised), not
+      // pure noise — otherwise img2img degenerates into txt2img.
+      xt::xarray<float> pure_noise_latents;
+      if (aspect_pad_synthetic_base) {
+        pure_noise_latents = xt::eval(latents);
+      }
+
       latents = scheduler->add_noise(original_latents, latents_noise, t);
 
       if (request_has_mask) {
         mask = xt::adapt(mask_data, {1, 4, sample_height, sample_width});
         mask_full =
             xt::adapt(mask_data_full, {1, 3, output_height, output_width});
+
+        if (aspect_pad_synthetic_base) {
+          // Inside the mask: txt2img-style pure noise (no black-latent bias).
+          // Outside: noised black latent, kept stable each step by the mask
+          // blend further down in the denoising loop.
+          latents =
+              xt::eval(pure_noise_latents * mask + latents * (1.0f - mask));
+        }
       }
 
       current_step++;
@@ -2402,6 +2501,30 @@ GenerationResult generateImage(
             auto norm = xt::clip(((transp + 1.0) / 2.0) * 255.0, 0.0, 255.0);
             xt::xarray<uint8_t> u8_img = xt::cast<uint8_t>(norm);
             std::vector<uint8_t> out_data(u8_img.begin(), u8_img.end());
+
+            // Aspect padding: also crop the preview to the target rectangle
+            // so the UI sees the same dimensions / framing as the final
+            // result (otherwise progress shows the 1024x1024 padded canvas
+            // and complete shows the cropped image).
+            if (aspect_pad_inpaint && target_crop_width > 0 &&
+                target_crop_height > 0 &&
+                (target_crop_width != output_width ||
+                 target_crop_height != output_height)) {
+              int px0 = (output_width - target_crop_width) / 2;
+              int py0 = (output_height - target_crop_height) / 2;
+              std::vector<uint8_t> cropped((size_t)3 * target_crop_width *
+                                           target_crop_height);
+              for (int y = 0; y < target_crop_height; ++y) {
+                const uint8_t *src_row =
+                    out_data.data() +
+                    ((size_t)(py0 + y) * output_width + px0) * 3;
+                uint8_t *dst_row =
+                    cropped.data() + (size_t)y * target_crop_width * 3;
+                std::memcpy(dst_row, src_row, (size_t)target_crop_width * 3);
+              }
+              out_data = std::move(cropped);
+            }
+
             std::string image_str_result(out_data.begin(), out_data.end());
             std::string enc_img = base64_encode(image_str_result);
             progress_callback(current_step, total_run_steps, enc_img);
@@ -2742,20 +2865,52 @@ GenerationResult generateImage(
               << "ms\n";
 
     // --- Post-process Image ---
-    if (request_has_mask) {
-      auto orig_img_view = xt::view(original_image, 0);  // (3, H, W)
-      auto gen_img_view = xt::view(pixels, 0);           // (3, H, W)
-      auto mask_view = xt::view(mask_full, 0);           // (1, H, W)
+    // Laplacian-blend the decoded image against the original only when the
+    // user actually painted a mask (real inpaint). For auto-installed aspect
+    // masks the "original" is just the synthetic canvas / padded user image
+    // and the mask region is the entire visible crop, so blending adds no
+    // value and risks contaminating with the surrounding canvas.
+    if (request_has_mask && user_supplied_mask) {
+      if (aspect_pad_inpaint) {
+        // Blend only inside the centered target rectangle so the discarded
+        // black border / pad don't pull dark content into the crop edge.
+        int px0 = (output_width - target_crop_width) / 2;
+        int py0 = (output_height - target_crop_height) / 2;
+        xt::xarray<float> orig_crop =
+            xt::eval(xt::view(original_image, 0, xt::all(),
+                              xt::range(py0, py0 + target_crop_height),
+                              xt::range(px0, px0 + target_crop_width)));
+        xt::xarray<float> gen_crop = xt::eval(xt::view(
+            pixels, 0, xt::all(), xt::range(py0, py0 + target_crop_height),
+            xt::range(px0, px0 + target_crop_width)));
+        xt::xarray<float> mask_crop = xt::eval(xt::view(
+            mask_full, 0, xt::all(), xt::range(py0, py0 + target_crop_height),
+            xt::range(px0, px0 + target_crop_width)));
+        auto blended = laplacianPyramidBlend(orig_crop, gen_crop, mask_crop);
+        // Write back into the same target rectangle of `pixels`.
+        auto target_view = xt::view(pixels, 0, xt::all(),
+                                    xt::range(py0, py0 + target_crop_height),
+                                    xt::range(px0, px0 + target_crop_width));
+        target_view = xt::reshape_view(
+            blended, {3, target_crop_height, target_crop_width});
+      } else {
+        auto orig_img_view = xt::view(original_image, 0);  // (3, H, W)
+        auto gen_img_view = xt::view(pixels, 0);           // (3, H, W)
+        auto mask_view = xt::view(mask_full, 0);           // (1, H, W)
 
-      auto blended =
-          laplacianPyramidBlend(orig_img_view, gen_img_view, mask_view);
-      pixels = xt::reshape_view(blended, {1, 3, output_height, output_width});
+        auto blended =
+            laplacianPyramidBlend(orig_img_view, gen_img_view, mask_view);
+        pixels = xt::reshape_view(blended, {1, 3, output_height, output_width});
+      }
     }
     auto img = xt::view(pixels, 0);
     auto transp = xt::transpose(img, {1, 2, 0});
     auto norm = xt::clip(((transp + 1.0) / 2.0) * 255.0, 0.0, 255.0);
     xt::xarray<uint8_t> u8_img = xt::cast<uint8_t>(norm);
     std::vector<uint8_t> out_data(u8_img.begin(), u8_img.end());
+
+    int final_width = output_width;
+    int final_height = output_height;
 
     // --- Safety Checker ---
     if (use_safety_checker) {
@@ -2788,9 +2943,29 @@ GenerationResult generateImage(
                           end_time - start_time)
                           .count();
 
+    // SDXL aspect-ratio padded inpaint: crop the centered target region out
+    // of the 1024x1024 canvas before returning.
+    if (aspect_pad_inpaint && target_crop_width > 0 && target_crop_height > 0 &&
+        (target_crop_width != output_width ||
+         target_crop_height != output_height)) {
+      int px0 = (output_width - target_crop_width) / 2;
+      int py0 = (output_height - target_crop_height) / 2;
+      std::vector<uint8_t> cropped((size_t)3 * target_crop_width *
+                                   target_crop_height);
+      for (int y = 0; y < target_crop_height; ++y) {
+        const uint8_t *src_row =
+            out_data.data() + ((size_t)(py0 + y) * output_width + px0) * 3;
+        uint8_t *dst_row = cropped.data() + (size_t)y * target_crop_width * 3;
+        std::memcpy(dst_row, src_row, (size_t)target_crop_width * 3);
+      }
+      out_data = std::move(cropped);
+      final_width = target_crop_width;
+      final_height = target_crop_height;
+    }
+
     return GenerationResult{out_data,
-                            output_width,
-                            output_height,
+                            final_width,
+                            final_height,
                             3,
                             static_cast<int>(total_time),
                             first_step_time_ms};
@@ -2981,6 +3156,11 @@ int main(int argc, char **argv) {
       denoise_strength = json.value("denoise_strength", 0.6f);
       request_img2img = false;
       request_has_mask = false;
+      aspect_pad_inpaint = false;
+      aspect_pad_synthetic_base = false;
+      user_supplied_mask = false;
+      target_crop_width = 0;
+      target_crop_height = 0;
       img_data.clear();
       mask_data.clear();
       mask_data_full.clear();
@@ -2989,6 +3169,63 @@ int main(int argc, char **argv) {
       sample_width = req_width / 8;
       sample_height = req_height / 8;
 
+      // --- SDXL aspect ratio: parse target dims first ----------------------
+      // Resolve target_crop_w/h from aspect_ratio. We compute it independently
+      // of img/mask presence so all three modes (txt2img / img2img / inpaint)
+      // share the same downstream crop-after-decode behavior. Requires a VAE
+      // encoder so the synthetic black canvas can be encoded as the inpaint
+      // base latent; if the SDXL build was started without one, fall through
+      // to plain 1024x1024 generation.
+      if (sdxl_mode && json.contains("aspect_ratio") &&
+          !vaeEncoderPath.empty()) {
+        std::string ar = json["aspect_ratio"].get<std::string>();
+        auto colon = ar.find(':');
+        if (colon != std::string::npos) {
+          try {
+            int rw = std::stoi(ar.substr(0, colon));
+            int rh = std::stoi(ar.substr(colon + 1));
+            if (rw > 0 && rh > 0 && !(rw == rh)) {
+              int tw, th;
+              if (rw >= rh) {
+                tw = 1024;
+                th = (int)((1024.0 * rh) / rw);
+                th = (th / 8) * 8;
+                if (th < 8) th = 8;
+              } else {
+                th = 1024;
+                tw = (int)((1024.0 * rw) / rh);
+                tw = (tw / 8) * 8;
+                if (tw < 8) tw = 8;
+              }
+              target_crop_width = tw;
+              target_crop_height = th;
+              aspect_pad_inpaint = true;
+            }
+          } catch (...) {
+            // Bad aspect_ratio string, ignore and proceed with 1:1.
+          }
+        }
+      }
+
+      // Paint rectangle = target + short-axis pad. Shared by the synthetic
+      // white-on-black base image and the aspect padding mask so both stay
+      // strictly aligned. Only computed when aspect padding is in effect.
+      const int kAspectPadPx = 8;
+      int paint_w = target_crop_width;
+      int paint_h = target_crop_height;
+      int paint_x0 = 0, paint_y0 = 0;
+      if (aspect_pad_inpaint) {
+        if (target_crop_width < output_width)
+          paint_w =
+              std::min(output_width, target_crop_width + 2 * kAspectPadPx);
+        if (target_crop_height < output_height)
+          paint_h =
+              std::min(output_height, target_crop_height + 2 * kAspectPadPx);
+        paint_x0 = (output_width - paint_w) / 2;
+        paint_y0 = (output_height - paint_h) / 2;
+      }
+
+      // --- Base image: user-supplied or synthetic --------------------------
       if (json.contains("image")) {
         request_img2img = true;
         std::string img_b64 = json["image"].get<std::string>();
@@ -3005,46 +3242,138 @@ int main(int argc, char **argv) {
           xt_f = xt::eval(xt_f / 127.5f - 1.0f);
           xt_f = xt::transpose(xt_f, {0, 3, 1, 2});
           img_data.assign(xt_f.begin(), xt_f.end());
-          if (json.contains("mask")) {
-            request_has_mask = true;
-            std::string mask_b64 = json["mask"].get<std::string>();
-            std::string dec_mask_str = base64_decode(mask_b64);
-            std::vector<uint8_t> dec_mask_buf(dec_mask_str.begin(),
-                                              dec_mask_str.end());
-            std::vector<uint8_t> mask_pix_lat_rgb, mask_pix_full_rgb;
-            decode_image(dec_mask_buf, mask_pix_lat_rgb, sample_width,
-                         sample_height);
-            decode_image(dec_mask_buf, mask_pix_full_rgb, output_width,
-                         output_height);
-            if (mask_pix_lat_rgb.empty() || mask_pix_full_rgb.empty())
-              throw std::runtime_error("Mask decode empty");
-            std::vector<int> mlat_shape = {sample_height, sample_width, 3};
-            xt::xarray<uint8_t> xmlat_u8 =
-                xt::adapt(mask_pix_lat_rgb, mlat_shape);
-            xt::xarray<float> xmlat_f =
-                xt::mean(xt::cast<float>(xmlat_u8), {2});
-            xmlat_f = xt::eval(xmlat_f / 255.0f);
-            xmlat_f =
-                xt::reshape_view(xmlat_f, {1, 1, sample_height, sample_width});
-            xt::xarray<float> xmlat_f_4 = xt::concatenate(
-                xt::xtuple(xmlat_f, xmlat_f, xmlat_f, xmlat_f), 1);
-            mask_data.assign(xmlat_f_4.begin(), xmlat_f_4.end());
-
-            std::vector<int> mfull_shape = {output_height, output_width, 3};
-            xt::xarray<uint8_t> xmfull_u8 =
-                xt::adapt(mask_pix_full_rgb, mfull_shape);
-            xt::xarray<float> xmfull_f =
-                xt::mean(xt::cast<float>(xmfull_u8), {2});
-            xmfull_f = xt::eval(xmfull_f / 255.0f);
-            xmfull_f =
-                xt::reshape_view(xmfull_f, {1, 1, output_height, output_width});
-            xt::xarray<float> xmfull_f_3 =
-                xt::concatenate(xt::xtuple(xmfull_f, xmfull_f, xmfull_f), 1);
-            mask_data_full.assign(xmfull_f_3.begin(), xmfull_f_3.end());
-          }
         } catch (const std::exception &e) {
-          throw std::invalid_argument("Err proc img/mask: " +
+          throw std::invalid_argument("Err proc img: " + std::string(e.what()));
+        }
+      } else if (aspect_pad_inpaint) {
+        // No user image but aspect padding requested: synthesise the
+        // white-on-black canvas as the inpaint base. Outer ring = black
+        // (value -1) to signal "edge"; center paint region = white (value
+        // +1) to hint "content". The white region extends `kAspectPadPx`
+        // pixels past the crop along the short axis so the mask boundary
+        // never coincides with the latent's black->white transition; the
+        // pad area gets generated but is cropped away on output.
+        // This is also the only path eligible for the per-target
+        // VAE-encoder cache.
+        aspect_pad_synthetic_base = true;
+        size_t img_total = 3 * (size_t)output_width * output_height;
+        img_data.assign(img_total, -1.0f);
+        for (int c = 0; c < 3; ++c) {
+          for (int y = paint_y0; y < paint_y0 + paint_h; ++y) {
+            float *row = img_data.data() +
+                         ((size_t)c * output_height + y) * output_width;
+            for (int x = paint_x0; x < paint_x0 + paint_w; ++x) row[x] = 1.0f;
+          }
+        }
+        request_img2img = true;
+        // Pure txt2img through the inpaint pipeline: fully renoise.
+        denoise_strength = 1.0f;
+      }
+
+      // --- Mask: user-supplied, possibly intersected with aspect mask -----
+      if (json.contains("mask")) {
+        try {
+          if (!request_img2img) throw std::runtime_error("mask requires image");
+          request_has_mask = true;
+          user_supplied_mask = true;
+          std::string mask_b64 = json["mask"].get<std::string>();
+          std::string dec_mask_str = base64_decode(mask_b64);
+          std::vector<uint8_t> dec_mask_buf(dec_mask_str.begin(),
+                                            dec_mask_str.end());
+          std::vector<uint8_t> mask_pix_lat_rgb, mask_pix_full_rgb;
+          decode_image(dec_mask_buf, mask_pix_lat_rgb, sample_width,
+                       sample_height);
+          decode_image(dec_mask_buf, mask_pix_full_rgb, output_width,
+                       output_height);
+          if (mask_pix_lat_rgb.empty() || mask_pix_full_rgb.empty())
+            throw std::runtime_error("Mask decode empty");
+          std::vector<int> mlat_shape = {sample_height, sample_width, 3};
+          xt::xarray<uint8_t> xmlat_u8 =
+              xt::adapt(mask_pix_lat_rgb, mlat_shape);
+          xt::xarray<float> xmlat_f = xt::mean(xt::cast<float>(xmlat_u8), {2});
+          xmlat_f = xt::eval(xmlat_f / 255.0f);
+          xmlat_f =
+              xt::reshape_view(xmlat_f, {1, 1, sample_height, sample_width});
+          xt::xarray<float> xmlat_f_4 = xt::concatenate(
+              xt::xtuple(xmlat_f, xmlat_f, xmlat_f, xmlat_f), 1);
+          mask_data.assign(xmlat_f_4.begin(), xmlat_f_4.end());
+
+          std::vector<int> mfull_shape = {output_height, output_width, 3};
+          xt::xarray<uint8_t> xmfull_u8 =
+              xt::adapt(mask_pix_full_rgb, mfull_shape);
+          xt::xarray<float> xmfull_f =
+              xt::mean(xt::cast<float>(xmfull_u8), {2});
+          xmfull_f = xt::eval(xmfull_f / 255.0f);
+          xmfull_f =
+              xt::reshape_view(xmfull_f, {1, 1, output_height, output_width});
+          xt::xarray<float> xmfull_f_3 =
+              xt::concatenate(xt::xtuple(xmfull_f, xmfull_f, xmfull_f), 1);
+          mask_data_full.assign(xmfull_f_3.begin(), xmfull_f_3.end());
+        } catch (const std::exception &e) {
+          throw std::invalid_argument("Err proc mask: " +
                                       std::string(e.what()));
+        }
+      }
+
+      // --- Aspect padding mask --------------------------------------------
+      // Install or intersect with the centered paint rectangle (computed
+      // above). If a user mask was supplied we zero out everything outside
+      // it so the user can never paint outside the visible crop area;
+      // otherwise we install the paint rect directly so the outer black
+      // border is preserved through every diffusion step. Latent (1/8)
+      // bounds use floor(origin) and ceil(end) to fully cover the
+      // pixel-space paint rect.
+      if (aspect_pad_inpaint) {
+        int lx0 = paint_x0 / 8;
+        int ly0 = paint_y0 / 8;
+        int lx1 = std::min(sample_width, (paint_x0 + paint_w + 7) / 8);
+        int ly1 = std::min(sample_height, (paint_y0 + paint_h + 7) / 8);
+
+        if (request_has_mask) {
+          // Zero out everything outside the paint rectangle.
+          for (int c = 0; c < 4; ++c) {
+            for (int y = 0; y < sample_height; ++y) {
+              float *row = mask_data.data() +
+                           ((size_t)c * sample_height + y) * sample_width;
+              if (y < ly0 || y >= ly1) {
+                std::fill(row, row + sample_width, 0.0f);
+              } else {
+                std::fill(row, row + lx0, 0.0f);
+                std::fill(row + lx1, row + sample_width, 0.0f);
+              }
+            }
+          }
+          for (int c = 0; c < 3; ++c) {
+            for (int y = 0; y < output_height; ++y) {
+              float *row = mask_data_full.data() +
+                           ((size_t)c * output_height + y) * output_width;
+              if (y < paint_y0 || y >= paint_y0 + paint_h) {
+                std::fill(row, row + output_width, 0.0f);
+              } else {
+                std::fill(row, row + paint_x0, 0.0f);
+                std::fill(row + paint_x0 + paint_w, row + output_width, 0.0f);
+              }
+            }
+          }
+        } else {
+          // No user mask: aspect mask alone, full opacity in the paint rect.
+          mask_data.assign((size_t)4 * sample_width * sample_height, 0.0f);
+          for (int c = 0; c < 4; ++c) {
+            for (int y = ly0; y < ly1; ++y) {
+              float *row = mask_data.data() +
+                           ((size_t)c * sample_height + y) * sample_width;
+              for (int x = lx0; x < lx1; ++x) row[x] = 1.0f;
+            }
+          }
+          mask_data_full.assign((size_t)3 * output_width * output_height, 0.0f);
+          for (int c = 0; c < 3; ++c) {
+            for (int y = paint_y0; y < paint_y0 + paint_h; ++y) {
+              float *row = mask_data_full.data() +
+                           ((size_t)c * output_height + y) * output_width;
+              for (int x = paint_x0; x < paint_x0 + paint_w; ++x) row[x] = 1.0f;
+            }
+          }
+          request_has_mask = true;
         }
       }
       std::cout << "Req Rcvd (globals): P:" << prompt

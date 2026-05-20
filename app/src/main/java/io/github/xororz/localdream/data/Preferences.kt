@@ -30,6 +30,7 @@ class GenerationPreferences(private val context: Context) {
 
     private fun getBatchCountsKey(modelId: String) = intPreferencesKey("${modelId}_batch_counts")
     private fun getSchedulerKey(modelId: String) = stringPreferencesKey("${modelId}_scheduler")
+    private fun getAspectRatioKey(modelId: String) = stringPreferencesKey("${modelId}_aspect_ratio")
 
     private val BASE_URL_KEY = stringPreferencesKey("base_url")
     private val SELECTED_SOURCE_KEY = stringPreferencesKey("selected_source")
@@ -95,7 +96,8 @@ class GenerationPreferences(private val context: Context) {
         denoiseStrength: Float,
         useOpenCL: Boolean,
         batchCounts: Int,
-        scheduler: String
+        scheduler: String,
+        aspectRatio: String = "1:1"
     ) {
         context.dataStore.edit { preferences ->
             preferences[getPromptKey(modelId)] = prompt
@@ -109,6 +111,7 @@ class GenerationPreferences(private val context: Context) {
             preferences[getUseOpenCLKey(modelId)] = useOpenCL
             preferences[getBatchCountsKey(modelId)] = batchCounts
             preferences[getSchedulerKey(modelId)] = scheduler
+            preferences[getAspectRatioKey(modelId)] = aspectRatio
         }
     }
 
@@ -140,7 +143,8 @@ class GenerationPreferences(private val context: Context) {
                     denoiseStrength = preferences[getDenoiseStrengthKey(modelId)] ?: 0.6f,
                     useOpenCL = preferences[getUseOpenCLKey(modelId)] ?: false,
                     batchCounts = preferences[getBatchCountsKey(modelId)] ?: 1,
-                    scheduler = preferences[getSchedulerKey(modelId)] ?: "dpm"
+                    scheduler = preferences[getSchedulerKey(modelId)] ?: "dpm",
+                    aspectRatio = preferences[getAspectRatioKey(modelId)] ?: "1:1"
                 )
             }
     }
@@ -158,6 +162,7 @@ class GenerationPreferences(private val context: Context) {
             preferences.remove(getUseOpenCLKey(modelId))
             preferences.remove(getBatchCountsKey(modelId))
             preferences.remove(getSchedulerKey(modelId))
+            preferences.remove(getAspectRatioKey(modelId))
         }
     }
 }
@@ -174,5 +179,6 @@ data class GenerationPrefs(
     val denoiseStrength: Float = 0.6f,
     val useOpenCL: Boolean = false,
     val batchCounts: Int = 1,
-    val scheduler: String = "dpm"
+    val scheduler: String = "dpm",
+    val aspectRatio: String = "1:1"
 )

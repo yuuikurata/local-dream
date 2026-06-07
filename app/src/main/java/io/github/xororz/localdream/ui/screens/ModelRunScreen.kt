@@ -881,7 +881,7 @@ fun ModelRunScreen(modelId: String, navController: NavController, modifier: Modi
 
     val onBatchCountsChange = remember {
         { value: Float ->
-            batchCounts = value.roundToInt().coerceIn(1, 10)
+            batchCounts = value.roundToInt().coerceIn(1, 100)
             saveAllFields()
         }
     }
@@ -2287,8 +2287,8 @@ fun ModelRunScreen(modelId: String, navController: NavController, modifier: Modi
                                                 Slider(
                                                     value = batchCounts.toFloat(),
                                                     onValueChange = onBatchCountsChange,
-                                                    valueRange = 1f..10f,
-                                                    steps = 8,
+                                                    valueRange = 1f..100f,
+                                                    steps = 98,
                                                     modifier = Modifier.fillMaxWidth(),
                                                 )
                                             }

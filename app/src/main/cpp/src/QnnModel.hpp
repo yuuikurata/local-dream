@@ -161,79 +161,6 @@ class QnnModel : public QnnSampleApp {
     return StatusCode::SUCCESS;
   }
 
-  StatusCode executeClipGraphs(int32_t *input_ids, float *text_embedding) {
-    auto returnStatus = StatusCode::SUCCESS;
-
-    size_t graphIdx = 0;
-    QNN_DEBUG("Starting clip execution for graphIdx: %d", graphIdx);
-
-    // set input/output tensor
-    if (inputs == nullptr || outputs == nullptr) {
-      if (qnn::tools::iotensor::StatusCode::SUCCESS !=
-          m_ioTensor.setupInputAndOutputTensors(&inputs, &outputs,
-                                                (*m_graphsInfo)[graphIdx])) {
-        QNN_ERROR(
-            "Error in setting up Input and output Tensors for graphIdx: %d",
-            graphIdx);
-        returnStatus = StatusCode::FAILURE;
-        return returnStatus;
-      }
-    }
-    auto graphInfo = (*m_graphsInfo)[graphIdx];
-
-    // check input/output tensors
-    if (graphInfo.numInputTensors != 1 || graphInfo.numOutputTensors != 1) {
-      QNN_ERROR(
-          "Expecting 1 input and 1 output tensor, got %d inputs and %d "
-          "outputs",
-          graphInfo.numInputTensors, graphInfo.numOutputTensors);
-      returnStatus = StatusCode::FAILURE;
-      return returnStatus;
-    }
-
-    // input_ids
-    {
-      uint32_t elementCount = 1 * 77;
-      memcpy(QNN_TENSOR_GET_CLIENT_BUF(inputs[0]).data, input_ids,
-             elementCount * sizeof(int32_t));
-    }
-
-    // execute graph
-    QNN_DEBUG("Executing clip graph: %d", graphIdx);
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    auto executeStatus = m_qnnFunctionPointers.qnnInterface.graphExecute(
-        graphInfo.graph, inputs, graphInfo.numInputTensors, outputs,
-        graphInfo.numOutputTensors, m_profileBackendHandle, nullptr);
-
-    auto end_time = std::chrono::high_resolution_clock::now();
-    int duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                       end_time - start_time)
-                       .count();
-    QNN_INFO("clip graph execution time: %d ms", duration);
-
-    if (QNN_GRAPH_NO_ERROR != executeStatus) {
-      returnStatus = StatusCode::FAILURE;
-      QNN_ERROR("clip graph execution failed!");
-    }
-
-    // get output
-    if (StatusCode::SUCCESS == returnStatus) {
-      float *tmp = nullptr;
-      if (qnn::tools::iotensor::StatusCode::SUCCESS !=
-          m_ioTensor.convertToFloat(&tmp, &outputs[0])) {
-        returnStatus = StatusCode::FAILURE;
-        return returnStatus;
-      }
-
-      uint32_t elementCount = 1 * 77 * text_embedding_size;
-      memcpy(text_embedding, tmp, elementCount * sizeof(float));
-      free(tmp);
-    }
-
-    return returnStatus;
-  }
-
   StatusCode executeUnetGraphs(float *latents, int timestep,
                                float *text_embedding, float *latents_pred) {
     auto returnStatus = StatusCode::SUCCESS;
@@ -311,16 +238,11 @@ class QnnModel : public QnnSampleApp {
 
     // get output
     if (StatusCode::SUCCESS == returnStatus) {
-      float *tmp = nullptr;
       if (qnn::tools::iotensor::StatusCode::SUCCESS !=
-          m_ioTensor.convertToFloat(&tmp, &outputs[0])) {
+          m_ioTensor.convertToFloatInto(latents_pred, &outputs[0])) {
         returnStatus = StatusCode::FAILURE;
         return returnStatus;
       }
-
-      int elementCount = 1 * 4 * sample_width * sample_height;
-      memcpy(latents_pred, tmp, elementCount * sizeof(float));
-      free(tmp);
     }
 
     return returnStatus;
@@ -385,27 +307,15 @@ class QnnModel : public QnnSampleApp {
 
     // get output
     if (StatusCode::SUCCESS == returnStatus) {
-      {
-        float *tmp = nullptr;
-        int elementCount = 1 * 4 * sample_width * sample_height;
-        if (qnn::tools::iotensor::StatusCode::SUCCESS !=
-            m_ioTensor.convertToFloat(&tmp, &outputs[0])) {
-          returnStatus = StatusCode::FAILURE;
-          return returnStatus;
-        }
-        memcpy(mean, tmp, elementCount * sizeof(float));
-        free(tmp);
+      if (qnn::tools::iotensor::StatusCode::SUCCESS !=
+          m_ioTensor.convertToFloatInto(mean, &outputs[0])) {
+        returnStatus = StatusCode::FAILURE;
+        return returnStatus;
       }
-      {
-        float *tmp = nullptr;
-        int elementCount = 1 * 4 * sample_width * sample_height;
-        if (qnn::tools::iotensor::StatusCode::SUCCESS !=
-            m_ioTensor.convertToFloat(&tmp, &outputs[1])) {
-          returnStatus = StatusCode::FAILURE;
-          return returnStatus;
-        }
-        memcpy(std, tmp, elementCount * sizeof(float));
-        free(tmp);
+      if (qnn::tools::iotensor::StatusCode::SUCCESS !=
+          m_ioTensor.convertToFloatInto(std, &outputs[1])) {
+        returnStatus = StatusCode::FAILURE;
+        return returnStatus;
       }
     }
     return returnStatus;
@@ -469,15 +379,11 @@ class QnnModel : public QnnSampleApp {
 
     // get output
     if (StatusCode::SUCCESS == returnStatus) {
-      float *tmp = nullptr;
-      int elementCount = 1 * 3 * output_width * output_height;
       if (qnn::tools::iotensor::StatusCode::SUCCESS !=
-          m_ioTensor.convertToFloat(&tmp, &outputs[0])) {
+          m_ioTensor.convertToFloatInto(pixel_values, &outputs[0])) {
         returnStatus = StatusCode::FAILURE;
         return returnStatus;
       }
-      memcpy(pixel_values, tmp, elementCount * sizeof(float));
-      free(tmp);
     }
     return returnStatus;
   }

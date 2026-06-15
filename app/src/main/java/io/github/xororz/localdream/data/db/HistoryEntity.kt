@@ -1,5 +1,6 @@
 package io.github.xororz.localdream.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -10,7 +11,7 @@ import androidx.room.PrimaryKey
         Index(value = ["modelId", "timestamp"]),
         Index(value = ["timestamp"]),
         Index(value = ["mode"]),
-    ]
+    ],
 )
 data class HistoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -36,4 +37,7 @@ data class HistoryEntity(
     val scheduler: String,
     val runOnCpu: Boolean,
     val useOpenCL: Boolean,
+
+    @ColumnInfo(defaultValue = "0")
+    val favorite: Boolean = false,
 )

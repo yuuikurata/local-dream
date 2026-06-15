@@ -4,16 +4,20 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import androidx.compose.runtime.Immutable
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
+import androidx.room.withTransaction
 import io.github.xororz.localdream.data.db.AppDatabase
 import io.github.xororz.localdream.data.db.HistoryEntity
 import io.github.xororz.localdream.ui.screens.GenerationParameters
+import java.io.File
+import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-
 
 @Immutable
 data class HistoryItem(
@@ -24,6 +28,7 @@ data class HistoryItem(
     val timestamp: Long,
     val mode: GenerationMode,
     val upscalerId: String?,
+    val favorite: Boolean = false,
 ) {
     companion object {
         fun fromEntity(filesDir: File, e: HistoryEntity): HistoryItem {
@@ -36,6 +41,7 @@ data class HistoryItem(
                 timestamp = e.timestamp,
                 mode = mode,
                 upscalerId = e.upscalerId,
+                favorite = e.favorite,
                 params = GenerationParameters(
                     steps = e.steps,
                     cfg = e.cfg,
@@ -56,9 +62,13 @@ data class HistoryItem(
     }
 }
 
+// Keep id batches under SQLite's host-parameter limit (999 on older API levels).
+private const val SQLITE_IN_CHUNK = 900
+
 class HistoryManager(private val context: Context) {
 
-    private val dao = AppDatabase.get(context).historyDao()
+    private val db = AppDatabase.get(context)
+    private val dao = db.historyDao()
     private val filesDir: File = context.filesDir
 
     private fun getHistoryDir(modelId: String): File {
@@ -80,7 +90,9 @@ class HistoryManager(private val context: Context) {
             val timestamp = System.currentTimeMillis()
             val historyDir = getHistoryDir(modelId)
 
-            val isUpscaled = upscalerId != null
+            // Upscaled and ultrafixed images are 4x-class resolutions; store
+            // them as JPEG (PNG would be tens of MB and seconds to encode).
+            val isUpscaled = upscalerId != null || mode == GenerationMode.ULTRAFIX
             val ext = if (isUpscaled) "jpg" else "png"
             val imageFile = File(historyDir, "$timestamp.$ext")
             FileOutputStream(imageFile).use { out ->
@@ -99,9 +111,14 @@ class HistoryManager(private val context: Context) {
                 width = params.width,
                 height = params.height,
                 mode = mode.name,
-                denoiseStrength = if (mode == GenerationMode.IMG2IMG || mode == GenerationMode.INPAINT) {
+                denoiseStrength = if (mode == GenerationMode.IMG2IMG ||
+                    mode == GenerationMode.INPAINT ||
+                    mode == GenerationMode.ULTRAFIX
+                ) {
                     params.denoiseStrength
-                } else null,
+                } else {
+                    null
+                },
                 upscalerId = upscalerId,
                 steps = params.steps,
                 cfg = params.cfg,
@@ -121,22 +138,73 @@ class HistoryManager(private val context: Context) {
         }
     }
 
-    suspend fun loadHistoryForModel(modelId: String): List<HistoryItem> =
-        withContext(Dispatchers.IO) {
-            try {
-                val filter = HistoryFilter(modelIds = setOf(modelId))
-                dao.queryOnce(filter.toSqlQuery())
-                    .map { HistoryItem.fromEntity(filesDir, it) }
-            } catch (e: Exception) {
-                Log.e("HistoryManager", "Failed to load history", e)
-                emptyList()
-            }
+    suspend fun setFavorite(id: Long, favorite: Boolean): Boolean = withContext(Dispatchers.IO) {
+        try {
+            dao.setFavorite(id, favorite) > 0
+        } catch (e: Exception) {
+            Log.e("HistoryManager", "Failed to update favorite", e)
+            false
         }
+    }
 
-    fun observe(filter: HistoryFilter): Flow<List<HistoryItem>> =
-        dao.query(filter.toSqlQuery()).map { entities ->
-            entities.map { HistoryItem.fromEntity(filesDir, it) }
+    suspend fun loadHistoryForModel(modelId: String): List<HistoryItem> = withContext(Dispatchers.IO) {
+        try {
+            val filter = HistoryFilter(modelIds = setOf(modelId))
+            dao.queryOnce(filter.toSqlQuery())
+                .map { HistoryItem.fromEntity(filesDir, it) }
+        } catch (e: Exception) {
+            Log.e("HistoryManager", "Failed to load history", e)
+            emptyList()
         }
+    }
+
+    fun observe(filter: HistoryFilter): Flow<List<HistoryItem>> = dao.query(filter.toSqlQuery()).map { entities ->
+        entities.map { HistoryItem.fromEntity(filesDir, it) }
+    }
+
+    // Paged grid feed. pageSize 60 keeps roughly three screens of 2-column
+    // thumbnails resident; placeholders are off so the grid never renders empty
+    // slots (the list simply grows as pages load).
+    fun pager(filter: HistoryFilter): Flow<PagingData<HistoryItem>> = Pager(
+        config = PagingConfig(pageSize = 60, enablePlaceholders = false),
+        pagingSourceFactory = { dao.queryPaged(filter.toSqlQuery()) },
+    ).flow.map { data -> data.map { HistoryItem.fromEntity(filesDir, it) } }
+
+    fun observeCount(filter: HistoryFilter): Flow<Int> = dao.queryCount(filter.toCountQuery())
+
+    // Newest matches first, capped. Backs the result-page thumbnail strip.
+    fun observeRecent(filter: HistoryFilter, limit: Int): Flow<List<HistoryItem>> = dao.query(filter.toRecentQuery(limit)).map { entities ->
+        entities.map { HistoryItem.fromEntity(filesDir, it) }
+    }
+
+    fun observeFavorite(id: Long): Flow<Boolean?> = dao.observeFavorite(id)
+
+    // Every id matching the filter, in display order. Used by select-all.
+    suspend fun queryIds(filter: HistoryFilter): List<Long> = withContext(Dispatchers.IO) {
+        try {
+            dao.queryIds(filter.toIdQuery())
+        } catch (e: Exception) {
+            Log.e("HistoryManager", "Failed to query ids", e)
+            emptyList()
+        }
+    }
+
+    // Resolves a selection (ids) back to items for batch save/delete. Returned
+    // in the requested id order so callers can rely on it.
+    suspend fun getItems(ids: Collection<Long>): List<HistoryItem> = withContext(Dispatchers.IO) {
+        try {
+            // Chunk the IN clause so large select-all sets stay under SQLite's
+            // host-parameter limit (999 on older API levels).
+            val byId = ids.toList()
+                .chunked(SQLITE_IN_CHUNK)
+                .flatMap { dao.getByIds(it) }
+                .associateBy { it.id }
+            ids.mapNotNull { byId[it]?.let { e -> HistoryItem.fromEntity(filesDir, e) } }
+        } catch (e: Exception) {
+            Log.e("HistoryManager", "Failed to load items", e)
+            emptyList()
+        }
+    }
 
     fun observeKnownModelIds(): Flow<List<String>> = dao.observeKnownModelIds()
     fun observeKnownSchedulers(): Flow<List<String>> = dao.observeKnownSchedulers()
@@ -149,6 +217,55 @@ class HistoryManager(private val context: Context) {
             true
         } catch (e: Exception) {
             Log.e("HistoryManager", "Failed to delete history item", e)
+            false
+        }
+    }
+
+    // Batch delete. All DB rows are removed inside a single transaction so the
+    // paging source is invalidated exactly once, on commit - deleting row by row
+    // races the Paging refresh and leaves just-deleted thumbnails rendered until
+    // some later, unrelated change refreshes the grid. Image files are removed
+    // best-effort afterwards; a file that won't delete doesn't fail the row.
+    // Returns the number of rows successfully deleted.
+    suspend fun deleteHistoryItems(items: List<HistoryItem>): Int = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) return@withContext 0
+        try {
+            db.withTransaction {
+                items.map { it.id }
+                    .chunked(SQLITE_IN_CHUNK)
+                    .forEach { dao.deleteByIds(it) }
+            }
+            items.forEach { item ->
+                if (item.imageFile.exists()) item.imageFile.delete()
+            }
+            items.size
+        } catch (e: Exception) {
+            Log.e("HistoryManager", "Failed to delete history items", e)
+            0
+        }
+    }
+
+    // Move a model's history (image files + DB rows) to a new id. The DB path
+    // rewrite mirrors the directory move so saved thumbnails keep resolving.
+    suspend fun renameModel(oldId: String, newId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val oldDir = File(filesDir, "history/$oldId")
+            if (oldDir.exists()) {
+                val newDir = File(filesDir, "history/$newId")
+                newDir.parentFile?.mkdirs()
+                if (newDir.exists()) {
+                    oldDir.listFiles()?.forEach { file ->
+                        file.renameTo(File(newDir, file.name))
+                    }
+                    oldDir.delete()
+                } else {
+                    oldDir.renameTo(newDir)
+                }
+            }
+            dao.renameModelId(oldId, newId)
+            true
+        } catch (e: Exception) {
+            Log.e("HistoryManager", "Failed to rename model history", e)
             false
         }
     }

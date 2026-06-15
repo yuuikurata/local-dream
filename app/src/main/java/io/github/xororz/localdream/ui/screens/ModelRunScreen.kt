@@ -2,7 +2,6 @@ package io.github.xororz.localdream.ui.screens
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -10,7 +9,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
-import android.graphics.Canvas
+import android.graphics.Rect as AndroidRect
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -22,7 +21,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -32,85 +31,63 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.LocalMinimumInteractiveComponentSize
-import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -119,44 +96,42 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.scale
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
-import androidx.compose.runtime.Immutable
+import androidx.paging.compose.collectAsLazyPagingItems
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import io.github.xororz.localdream.BuildConfig
 import io.github.xororz.localdream.R
-import io.github.xororz.localdream.data.DownloadProgress
-import io.github.xororz.localdream.data.GenerationPreferences
+import io.github.xororz.localdream.data.GenerationDefaults
 import io.github.xororz.localdream.data.GenerationMode
+import io.github.xororz.localdream.data.GenerationPreferences
 import io.github.xororz.localdream.data.HistoryFilter
 import io.github.xororz.localdream.data.HistoryItem
 import io.github.xororz.localdream.data.HistoryManager
@@ -166,19 +141,19 @@ import io.github.xororz.localdream.data.Resolution
 import io.github.xororz.localdream.data.TagAutocompleteRepository
 import io.github.xororz.localdream.data.TagMatchType
 import io.github.xororz.localdream.data.TagSuggestion
-import io.github.xororz.localdream.data.UpscalerModel
 import io.github.xororz.localdream.data.UpscalerRepository
 import io.github.xororz.localdream.service.BackendService
 import io.github.xororz.localdream.service.BackgroundGenerationService
 import io.github.xororz.localdream.service.BackgroundGenerationService.GenerationState
-import io.github.xororz.localdream.service.ModelDownloadService
+import io.github.xororz.localdream.ui.components.BlockingProgressOverlay
 import io.github.xororz.localdream.ui.components.GenerationParamsDialog
 import io.github.xororz.localdream.ui.components.ImportParametersDialog
 import io.github.xororz.localdream.ui.components.OverlayIconButton
-import io.github.xororz.localdream.ui.components.PromptTagTextField
 import io.github.xororz.localdream.ui.components.ReproduceParametersDialog
-import io.github.xororz.localdream.ui.components.ShareParametersDialog
+import io.github.xororz.localdream.ui.components.ShareParamsFlow
+import io.github.xororz.localdream.ui.components.SmoothLinearWavyProgressIndicator
 import io.github.xororz.localdream.ui.components.ZoomableImageOverlay
+import io.github.xororz.localdream.ui.theme.Motion
 import io.github.xororz.localdream.utils.ImportedParams
 import io.github.xororz.localdream.utils.LogCapture
 import io.github.xororz.localdream.utils.ParamShare
@@ -186,226 +161,58 @@ import io.github.xororz.localdream.utils.ParamShareField
 import io.github.xororz.localdream.utils.performUpscale
 import io.github.xororz.localdream.utils.reportImage
 import io.github.xororz.localdream.utils.saveImage
+import io.github.xororz.localdream.utils.saveImageFromFile
+import java.io.File
+import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONObject
-import java.io.ByteArrayOutputStream
-import java.io.File
-import java.util.Base64
-import java.util.concurrent.TimeUnit
-import kotlin.math.roundToInt
-import android.graphics.Rect as AndroidRect
-import androidx.core.graphics.createBitmap
-import androidx.core.graphics.scale
-import androidx.core.content.edit
-
-
-private fun checkStoragePermission(context: Context): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        true // Android 10
-    } else {
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-}
-
-private val tokenizeClient: OkHttpClient by lazy {
-    OkHttpClient.Builder()
-        .connectTimeout(2, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .writeTimeout(5, TimeUnit.SECONDS)
-        .build()
-}
-
-private data class TokenizeResult(val count: Int, val maxLength: Int)
-
-private suspend fun tokenizePromptRequest(text: String): TokenizeResult? =
-    withContext(Dispatchers.IO) {
-        try {
-            val body = JSONObject().apply { put("prompt", text) }
-                .toString()
-                .toRequestBody("application/json".toMediaTypeOrNull())
-            val request = Request.Builder()
-                .url("http://localhost:8081/tokenize")
-                .post(body)
-                .build()
-            tokenizeClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val payload = response.body?.string() ?: return@withContext null
-                val json = JSONObject(payload)
-                TokenizeResult(
-                    count = json.optInt("count", 0),
-                    maxLength = json.optInt("max_length", 77)
-                )
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-private suspend fun checkBackendHealth(
-    backendState: StateFlow<BackendService.BackendState>,
-    onHealthy: () -> Unit,
-    onUnhealthy: () -> Unit
-) = withContext(Dispatchers.IO) {
-    try {
-        val client = OkHttpClient.Builder()
-            .connectTimeout(100, TimeUnit.MILLISECONDS)  // 100ms
-            .build()
-
-        val startTime = System.currentTimeMillis()
-//        val timeoutDuration = 10000
-        val timeoutDuration = 60000
-
-        while (currentCoroutineContext().isActive) {
-            if (backendState.value is BackendService.BackendState.Error) {
-                withContext(Dispatchers.Main) {
-                    onUnhealthy()
-                }
-                break
-            }
-
-            if (System.currentTimeMillis() - startTime > timeoutDuration) {
-                withContext(Dispatchers.Main) {
-                    onUnhealthy()
-                }
-                break
-            }
-
-            try {
-                val request = Request.Builder()
-                    .url("http://localhost:8081/health")
-                    .get()
-                    .build()
-
-                val response = client.newCall(request).execute()
-                if (response.isSuccessful) {
-                    withContext(Dispatchers.Main) {
-                        onHealthy()
-                    }
-                    break
-                }
-            } catch (e: Exception) {
-                // e
-            }
-
-            delay(100)
-        }
-    } catch (e: Exception) {
-        withContext(Dispatchers.Main) {
-            onUnhealthy()
-        }
-    }
-}
-
-/**
- * For SDXL with a non-1:1 aspectRatio, returns the centered (target_w, target_h)
- * region inside the 1024x1024 generation canvas. The longest side is forced to
- * canvasMax (1024), the shortest side is scaled by the ratio and aligned down to
- * a multiple of 8. Returns null in all other cases (non-SDXL, 1:1, malformed),
- * meaning "no padding, use canvas size directly."
- */
-fun computeAspectTargetSize(
-    isSdxl: Boolean,
-    aspectRatio: String,
-    canvasMax: Int = 1024
-): Pair<Int, Int>? {
-    if (!isSdxl) return null
-    val parts = aspectRatio.split(":")
-    if (parts.size != 2) return null
-    val rw = parts[0].toIntOrNull() ?: return null
-    val rh = parts[1].toIntOrNull() ?: return null
-    if (rw <= 0 || rh <= 0 || rw == rh) return null
-    return if (rw >= rh) {
-        val th = ((canvasMax.toDouble() * rh / rw).toInt() / 8 * 8).coerceAtLeast(8)
-        Pair(canvasMax, th)
-    } else {
-        val tw = ((canvasMax.toDouble() * rw / rh).toInt() / 8 * 8).coerceAtLeast(8)
-        Pair(tw, canvasMax)
-    }
-}
-
-/**
- * GCD-reduces (width, height) into a "W:H" aspect-ratio string.
- * Used by reproduce/import paths to recover an aspect from a recorded result size.
- */
-fun inferAspectRatioString(width: Int, height: Int): String {
-    if (width <= 0 || height <= 0) return "1:1"
-    var a = width
-    var b = height
-    while (b != 0) {
-        val t = b; b = a % b; a = t
-    }
-    return "${width / a}:${height / a}"
-}
-
-/**
- * Pads `src` (already at targetW x targetH) into a canvas of size canvasW x canvasH
- * with a centered placement and black borders. If src already matches canvas size,
- * returns the source unchanged.
- */
-fun padBitmapToCanvas(
-    src: Bitmap,
-    canvasW: Int,
-    canvasH: Int
-): Bitmap {
-    if (src.width == canvasW && src.height == canvasH) return src
-    val out = createBitmap(canvasW, canvasH)
-    val canvas = Canvas(out)
-    canvas.drawColor(android.graphics.Color.BLACK)
-    val left = ((canvasW - src.width) / 2).toFloat()
-    val top = ((canvasH - src.height) / 2).toFloat()
-    canvas.drawBitmap(src, left, top, null)
-    return out
-}
-
-@Immutable
-data class GenerationParameters(
-    val steps: Int,
-    val cfg: Float,
-    val seed: Long?,
-    val prompt: String,
-    val negativePrompt: String,
-    val generationTime: String?,
-    val width: Int,
-    val height: Int,
-    val runOnCpu: Boolean,
-    val denoiseStrength: Float = 0.6f,
-    val useOpenCL: Boolean = false,
-    val scheduler: String = "dpm",
-    val mode: GenerationMode = GenerationMode.UNKNOWN,
-)
+import kotlinx.coroutines.withTimeoutOrNull
 
 @SuppressLint("DefaultLocale")
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun ModelRunScreen(
-    modelId: String,
-    navController: NavController,
-    modifier: Modifier = Modifier
-) {
+fun ModelRunScreen(modelId: String, navController: NavController, modifier: Modifier = Modifier) {
     val serviceState by BackgroundGenerationService.generationState.collectAsState()
     val backendState by BackendService.backendState.collectAsState()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val generationPreferences = remember { GenerationPreferences(context) }
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
-    val modelRepository = remember { ModelRepository(context) }
-    val model = remember { modelRepository.models.find { it.id == modelId } }
+    val modelRepository = remember { ModelRepository.getInstance(context) }
+
+    // String resources hoisted to composable scope (lint: LocalContextGetResourceValueCall).
+    val msgMediaPermissionHint = stringResource(R.string.media_permission_hint)
+    val msgBackendFailed = stringResource(R.string.backend_failed)
+    val msgImportNoParams = stringResource(R.string.import_no_params)
+    val msgImageSaved = stringResource(R.string.image_saved)
+    val msgDeleted = stringResource(R.string.deleted)
+    val msgDeleteFailedMessage = stringResource(R.string.delete_failed_message)
+    val msgImportApplied = stringResource(R.string.import_applied)
+    val msgUpscaleFailed = stringResource(R.string.upscale_failed)
+    val msgUltrafixFailed = stringResource(R.string.ultrafix_failed)
+    val msgSavedCountWithFailed = stringResource(R.string.saved_count_with_failed)
+    val msgDeletedCountWithFailed = stringResource(R.string.deleted_count_with_failed)
+    val msgUnknownError = stringResource(R.string.unknown_error)
+    val msgSaveFailed = stringResource(R.string.save_failed_detail)
+    val msgImg2imgFailed = stringResource(R.string.img2img_failed_detail)
+    val msgPleaseCropFirst = stringResource(R.string.please_crop_first)
+    val msgReportSuccess = stringResource(R.string.report_success)
+    val msgReportFailed = stringResource(R.string.report_failed)
+    val msgNoImageAvailable = stringResource(R.string.no_image_available)
+    val msgImageLoadFailed = stringResource(R.string.image_load_failed)
+    val msgGenerationInterrupted = stringResource(R.string.generation_interrupted)
+    // Reaches the screen with the repository already loaded on the normal
+    // navigation path; resolves asynchronously after process recreation.
+    val model = remember(modelRepository.models) { modelRepository.models.find { it.id == modelId } }
+    LaunchedEffect(Unit) { modelRepository.ensureLoaded() }
     val historyManager = remember { HistoryManager(context) }
     val scrollBehavior =
         TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
@@ -420,10 +227,11 @@ fun ModelRunScreen(
 
     var showResetConfirmDialog by remember { mutableStateOf(false) }
     var showOpenCLWarningDialog by remember { mutableStateOf(false) }
+    var showInterruptDialog by remember { mutableStateOf(false) }
 
     var currentBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var intermediateBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var imageVersion by remember { mutableStateOf(0) }
+    var imageVersion by remember { mutableIntStateOf(0) }
     var generationParams by remember { mutableStateOf<GenerationParameters?>(null) }
     var generationParamsModelId by remember { mutableStateOf(modelId) }
 
@@ -431,8 +239,14 @@ fun ModelRunScreen(
     var historyFilter by remember(modelId) {
         mutableStateOf(HistoryFilter(modelIds = setOf(modelId)))
     }
-    val historyFlow = remember(historyFilter) { historyManager.observe(historyFilter) }
-    val historyItems by historyFlow.collectAsState(initial = emptyList())
+    val pagedHistory = remember(historyFilter) { historyManager.pager(historyFilter) }
+        .collectAsLazyPagingItems()
+    val historyTotalCount by remember(historyFilter) { historyManager.observeCount(historyFilter) }
+        .collectAsState(initial = 0)
+    // Bounded newest-first feed for the result-page thumbnail strip and the
+    // seed-on-open effect; avoids materializing the full history.
+    val recentHistory by remember(historyFilter) { historyManager.observeRecent(historyFilter, 20) }
+        .collectAsState(initial = emptyList())
     val knownModelIds by remember { historyManager.observeKnownModelIds() }
         .collectAsState(initial = emptyList())
     val knownSchedulers by remember { historyManager.observeKnownSchedulers() }
@@ -460,13 +274,13 @@ fun ModelRunScreen(
 
     // Selection mode state
     var isSelectionMode by remember { mutableStateOf(false) }
-    val selectedItems = remember { mutableStateListOf<HistoryItem>() }
+    val selectedIds = remember { mutableStateListOf<Long>() }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
     var showBatchSaveDialog by remember { mutableStateOf(false) }
     var isBatchSaving by remember { mutableStateOf(false) }
-    var batchSaveTotal by remember { mutableStateOf(0) }
-    var batchSaveCurrent by remember { mutableStateOf(0) }
-    var batchSaveFailed by remember { mutableStateOf(0) }
+    var batchSaveTotal by remember { mutableIntStateOf(0) }
+    var batchSaveCurrent by remember { mutableIntStateOf(0) }
+    var batchSaveFailed by remember { mutableIntStateOf(0) }
 
     var generationParamsTmp by remember {
         mutableStateOf(
@@ -477,63 +291,66 @@ fun ModelRunScreen(
                 prompt = "",
                 negativePrompt = "",
                 generationTime = "",
-                width = if (model?.isSdxl == true) 1024 else if (model?.runOnCpu == true) 256 else 512,
-                height = if (model?.isSdxl == true) 1024 else if (model?.runOnCpu == true) 256 else 512,
-                runOnCpu = model?.runOnCpu ?: false
-            )
+                width = defaultGenerationSize(model?.isSdxl == true, model?.runOnCpu == true),
+                height = defaultGenerationSize(model?.isSdxl == true, model?.runOnCpu == true),
+                runOnCpu = model?.runOnCpu ?: false,
+            ),
         )
     }
-    var prompt by remember { mutableStateOf("") }
-    var negativePrompt by remember { mutableStateOf("") }
-    var dynamicprompt by remember { mutableStateOf("") }
-    var promptFieldValue by remember { mutableStateOf(TextFieldValue("")) }
-    var negativePromptFieldValue by remember { mutableStateOf(TextFieldValue("")) }
-    var promptSuggestions by remember { mutableStateOf<List<TagSuggestion>>(emptyList()) }
-    var negativePromptSuggestions by remember { mutableStateOf<List<TagSuggestion>>(emptyList()) }
-    var promptActiveQuery by remember { mutableStateOf<String?>(null) }
-    var negativePromptActiveQuery by remember { mutableStateOf<String?>(null) }
-    var isPromptFocused by remember { mutableStateOf(false) }
-    var isNegativePromptFocused by remember { mutableStateOf(false) }
-    var cfg by remember { mutableStateOf(7f) }
-    var steps by remember { mutableStateOf(20f) }
-    var seed by remember { mutableStateOf("") }
-    var denoiseStrength by remember { mutableStateOf(0.6f) }
+    var cfg by remember { mutableFloatStateOf(GenerationDefaults.GLOBAL.cfg) }
+    var steps by remember { mutableFloatStateOf(GenerationDefaults.GLOBAL.steps) }
+    var seed by remember { mutableStateOf(GenerationDefaults.GLOBAL.seed) }
+    var denoiseStrength by remember { mutableFloatStateOf(GenerationDefaults.GLOBAL.denoiseStrength) }
     var useOpenCL by remember { mutableStateOf(false) }
-    var batchCounts by remember { mutableStateOf(1) }
-    var scheduler by remember { mutableStateOf("dpm") }
-    var aspectRatio by remember { mutableStateOf("1:1") }
+    var batchCounts by remember { mutableIntStateOf(GenerationDefaults.GLOBAL.batchCounts) }
+    var scheduler by remember { mutableStateOf(GenerationDefaults.GLOBAL.scheduler) }
+    var aspectRatio by remember { mutableStateOf(GenerationDefaults.GLOBAL.aspectRatio) }
     var showCustomAspectRatioDialog by remember { mutableStateOf(false) }
-    var currentBatchIndex by remember { mutableStateOf(0) }
+    var currentBatchIndex by remember { mutableIntStateOf(0) }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var base64EncodeDone by remember { mutableStateOf(false) }
     var returnedSeed by remember { mutableStateOf<Long?>(null) }
     var isRunning by remember { mutableStateOf(false) }
-    var progress by remember { mutableStateOf(0f) }
+    var progress by remember { mutableFloatStateOf(0f) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isCheckingBackend by remember { mutableStateOf(true) }
-    var showExitDialog by remember { mutableStateOf(false) }
     var showParametersDialog by remember { mutableStateOf(false) }
-    var pagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
     var generationStartTime by remember { mutableStateOf<Long?>(null) }
     var hasInitialized by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
 
-    var currentWidth by remember { mutableStateOf(if (model?.isSdxl == true) 1024 else if (model?.runOnCpu == true) 256 else 512) }
-    var currentHeight by remember { mutableStateOf(if (model?.isSdxl == true) 1024 else if (model?.runOnCpu == true) 256 else 512) }
+    // The prompt fields live on page 0. When the user swipes to the result or
+    // history page the suggestion popup is anchored absolutely and would linger,
+    // so drop focus (which clears the suggestions) as soon as we leave page 0.
+    LaunchedEffect(pagerState.currentPage) {
+        if (pagerState.currentPage != 0) {
+            focusManager.clearFocus()
+        }
+    }
+
+    var currentWidth by remember {
+        mutableIntStateOf(defaultGenerationSize(model?.isSdxl == true, model?.runOnCpu == true))
+    }
+    var currentHeight by remember {
+        mutableIntStateOf(defaultGenerationSize(model?.isSdxl == true, model?.runOnCpu == true))
+    }
     var availableResolutions by remember { mutableStateOf<List<Resolution>>(emptyList()) }
     var showResolutionChangeDialog by remember { mutableStateOf(false) }
     var pendingResolution by remember { mutableStateOf<Resolution?>(null) }
-    var backendRestartTrigger by remember { mutableStateOf(0) }
+    var backendRestartTrigger by remember { mutableIntStateOf(0) }
     var showAdvancedSettings by remember { mutableStateOf(false) }
 
-    val isFirstPage by remember { derivedStateOf { pagerState.currentPage == 0 } }
-    val isSecondPage by remember { derivedStateOf { pagerState.currentPage == 1 } }
-
     var isPreviewMode by remember { mutableStateOf(false) }
-    val preferences = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-    val useImg2img = preferences.getBoolean("use_img2img", true)
-    val enableTagAutocomplete = preferences.getBoolean("enable_tag_autocomplete", true)
-    val tagSuggestionCount = 100
+    val preferences = remember {
+        context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    }
+    // Both settings can only change on the model list screen, so a snapshot
+    // taken once per screen entry is enough; re-reading on every recomposition
+    // would hit SharedPreferences in the hottest path of this composable.
+    val useImg2img = remember { preferences.getBoolean("use_img2img", true) }
+    val enableTagAutocomplete = remember { preferences.getBoolean("enable_tag_autocomplete", true) }
+    val tagSuggestionCount = 128
     val tagAutocompleteRepository = remember { TagAutocompleteRepository.getInstance(context) }
     val tagDictState by tagAutocompleteRepository.state.collectAsState()
     val tagAutocompleteAvailable = enableTagAutocomplete && tagDictState.mainImported
@@ -548,8 +365,52 @@ fun ModelRunScreen(
     // when either prompt field gains focus so newly-imported embeddings show up
     // without re-entering the screen.
     var embeddingNames by remember { mutableStateOf<List<String>>(emptyList()) }
-    LaunchedEffect(isPromptFocused, isNegativePromptFocused) {
-        if (!isPromptFocused && !isNegativePromptFocused) return@LaunchedEffect
+
+    // Build embedding TagSuggestion rows for the current query. Returns at most
+    // `limit` entries: prefix matches first, then contains matches. Comparison
+    // normalizes spaces/dashes to underscores so users typing either form match.
+    fun embeddingSuggestionsFor(query: String, limit: Int = 5): List<TagSuggestion> {
+        if (embeddingNames.isEmpty()) return emptyList()
+        val q = query.trim()
+            .lowercase()
+            .replace(' ', '_')
+            .replace('-', '_')
+        if (q.isEmpty()) return emptyList()
+        val prefix = mutableListOf<TagSuggestion>()
+        val contains = mutableListOf<TagSuggestion>()
+        for (name in embeddingNames) {
+            val normalized = name.lowercase().replace(' ', '_').replace('-', '_')
+            val idx = normalized.indexOf(q)
+            if (idx < 0) continue
+            val suggestion = TagSuggestion(
+                replacementTag = name,
+                primaryText = name,
+                secondaryText = null,
+                matchType = TagMatchType.Embedding,
+                category = 0,
+                postCount = 0,
+                score = 0,
+            )
+            if (idx == 0) prefix += suggestion else contains += suggestion
+        }
+        return (prefix + contains).take(limit)
+    }
+
+    val promptField = rememberPromptFieldController(
+        repository = tagAutocompleteRepository,
+        suggestionCount = tagSuggestionCount,
+        embeddingSuggestionsFor = { embeddingSuggestionsFor(it) },
+    )
+    val negativePromptField = rememberPromptFieldController(
+        repository = tagAutocompleteRepository,
+        suggestionCount = tagSuggestionCount,
+        embeddingSuggestionsFor = { embeddingSuggestionsFor(it) },
+    )
+    promptField.autocompleteAvailable = tagAutocompleteAvailable
+    negativePromptField.autocompleteAvailable = tagAutocompleteAvailable
+
+    LaunchedEffect(promptField.isFocused, negativePromptField.isFocused) {
+        if (!promptField.isFocused && !negativePromptField.isFocused) return@LaunchedEffect
         val names = withContext(Dispatchers.IO) {
             File(context.filesDir, "embeddings")
                 .takeIf { it.isDirectory }
@@ -582,13 +443,22 @@ fun ModelRunScreen(
     var snapshotIsInpaintMode by remember { mutableStateOf(false) }
     var snapshotSelectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var snapshotCropRect by remember { mutableStateOf<AndroidRect?>(null) }
+    var snapshotMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var snapshotHasOriginalImage by remember { mutableStateOf(false) }
-    // History-item id of the just-completed inpaint generation, compared against
-    // currentDisplayedHistoryId so saving only stitches when the bitmap on screen
-    // really is that generation (regardless of whether it's the original Bitmap
-    // object or a fresh decode from clicking the thumbnail again).
-    var snapshotHistoryItemId by remember { mutableStateOf<Long?>(null) }
+    // History-item ids whose bitmaps may be stitched back into the inpaint source:
+    // the just-completed inpaint generation plus any upscaled copies derived from
+    // it. Compared against currentDisplayedHistoryId so saving only stitches when
+    // the bitmap on screen really is one of those (regardless of whether it's the
+    // original Bitmap object or a fresh decode from clicking the thumbnail again).
+    var stitchableHistoryIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var currentDisplayedHistoryId by remember { mutableStateOf<Long?>(null) }
+    // Favorite flag of the image currently on the result page, looked up by id
+    // so it stays correct even when the row isn't in a loaded history page.
+    val displayedFavorite by remember(currentDisplayedHistoryId) {
+        currentDisplayedHistoryId
+            ?.let { historyManager.observeFavorite(it) }
+            ?: flowOf(null)
+    }.collectAsState(initial = null)
 
     var saveAllJob: Job? by remember { mutableStateOf(null) }
     var batchGenerationJob: Job? by remember { mutableStateOf(null) }
@@ -596,7 +466,31 @@ fun ModelRunScreen(
     // Upscaler related states
     var showUpscalerDialog by remember { mutableStateOf(false) }
     var isUpscaling by remember { mutableStateOf(false) }
-    val upscalerRepository = remember { UpscalerRepository(context) }
+
+    // Ultrafix (tiled img2img repair of an upscaled image) states.
+    // pendingUltrafix marks the in-flight generation as an ultrafix run so the
+    // completion handler can record the right mode.
+    var showUltrafixConfirmDialog by remember { mutableStateOf(false) }
+    var pendingUltrafix by remember { mutableStateOf(false) }
+    var isUltrafixPreparing by remember { mutableStateOf(false) }
+    // UltraFix runs with its own steps/denoise (defaults 10 / 0.4), persisted
+    // globally and kept independent of the main generation params so tweaking
+    // them in the UltraFix dialog never touches the prompt-page settings.
+    var ultrafixSteps by remember { mutableFloatStateOf(GenerationDefaults.GLOBAL.ultrafixSteps) }
+    // Denoise is controlled as a step count (0..min(10, steps)); the backend
+    // strength is derived from it at run time.
+    var ultrafixDenoiseSteps by remember {
+        mutableIntStateOf(GenerationDefaults.GLOBAL.ultrafixDenoiseSteps)
+    }
+    var ultrafixSaveJob: Job? by remember { mutableStateOf(null) }
+    LaunchedEffect(Unit) {
+        ultrafixSteps = generationPreferences.observeUltrafixSteps(modelId).first()
+        val maxDenoiseSteps =
+            minOf(GenerationDefaults.ULTRAFIX_DENOISE_STEPS_MAX, ultrafixSteps.roundToInt())
+        ultrafixDenoiseSteps =
+            generationPreferences.observeUltrafixDenoiseSteps(modelId).first().coerceIn(0, maxDenoiseSteps)
+    }
+    val upscalerRepository = remember { UpscalerRepository.getInstance(context) }
     val upscalerPreferences =
         remember { context.getSharedPreferences("upscaler_prefs", Context.MODE_PRIVATE) }
 
@@ -627,8 +521,8 @@ fun ModelRunScreen(
             delay(1000)
             generationPreferences.saveAllFields(
                 modelId = modelId,
-                prompt = prompt,
-                negativePrompt = negativePrompt,
+                prompt = promptField.text,
+                negativePrompt = negativePromptField.text,
                 steps = steps,
                 cfg = cfg,
                 seed = seed,
@@ -638,13 +532,31 @@ fun ModelRunScreen(
                 useOpenCL = useOpenCL,
                 batchCounts = batchCounts,
                 scheduler = scheduler,
-                aspectRatio = aspectRatio
+                aspectRatio = aspectRatio,
             )
         }
     }
 
-    val onStepsChange = remember { { value: Float -> steps = value; saveAllFields() } }
-    val onCfgChange = remember { { value: Float -> cfg = value; saveAllFields() } }
+    fun saveUltrafixParams() {
+        ultrafixSaveJob?.cancel()
+        ultrafixSaveJob = scope.launch(Dispatchers.IO) {
+            delay(500)
+            generationPreferences.saveUltrafixParams(modelId, ultrafixSteps, ultrafixDenoiseSteps)
+        }
+    }
+
+    val onStepsChange = remember {
+        { value: Float ->
+            steps = value
+            saveAllFields()
+        }
+    }
+    val onCfgChange = remember {
+        { value: Float ->
+            cfg = value
+            saveAllFields()
+        }
+    }
     val onSizeChange = remember {
         { value: Float ->
             val rounded = (value / 64).roundToInt() * 64
@@ -655,158 +567,27 @@ fun ModelRunScreen(
         }
     }
     val onDenoiseStrengthChange =
-        remember { { value: Float -> denoiseStrength = value; saveAllFields() } }
-    val onSeedChange = remember { { value: String -> seed = value; saveAllFields() } }
-    var promptSuggestJob by remember { mutableStateOf<Job?>(null) }
-    var negativePromptSuggestJob by remember { mutableStateOf<Job?>(null) }
-
-    var promptTokenCount by remember { mutableStateOf(2) }
-    var negativePromptTokenCount by remember { mutableStateOf(2) }
-    var promptTokenMax by remember { mutableStateOf(77) }
-    var negativePromptTokenMax by remember { mutableStateOf(77) }
-
-    LaunchedEffect(prompt, isCheckingBackend) {
-        if (isCheckingBackend) return@LaunchedEffect
-        delay(400)
-        val result = tokenizePromptRequest(prompt) ?: return@LaunchedEffect
-        promptTokenCount = result.count
-        promptTokenMax = result.maxLength
-    }
-    LaunchedEffect(negativePrompt, isCheckingBackend) {
-        if (isCheckingBackend) return@LaunchedEffect
-        delay(400)
-        val result = tokenizePromptRequest(negativePrompt) ?: return@LaunchedEffect
-        negativePromptTokenCount = result.count
-        negativePromptTokenMax = result.maxLength
-    }
-
-    // Build embedding TagSuggestion rows for the current query. Returns at most
-    // `limit` entries: prefix matches first, then contains matches. Comparison
-    // normalizes spaces/dashes to underscores so users typing either form match.
-    fun embeddingSuggestionsFor(query: String, limit: Int = 5): List<TagSuggestion> {
-        if (embeddingNames.isEmpty()) return emptyList()
-        val q = query.trim()
-            .lowercase()
-            .replace(' ', '_')
-            .replace('-', '_')
-        if (q.isEmpty()) return emptyList()
-        val prefix = mutableListOf<TagSuggestion>()
-        val contains = mutableListOf<TagSuggestion>()
-        for (name in embeddingNames) {
-            val normalized = name.lowercase().replace(' ', '_').replace('-', '_')
-            val idx = normalized.indexOf(q)
-            if (idx < 0) continue
-            val suggestion = TagSuggestion(
-                replacementTag = name,
-                primaryText = name,
-                secondaryText = null,
-                matchType = TagMatchType.Embedding,
-                category = 0,
-                postCount = 0,
-                score = 0
-            )
-            if (idx == 0) prefix += suggestion else contains += suggestion
+        remember {
+            { value: Float ->
+                denoiseStrength = value
+                saveAllFields()
+            }
         }
-        return (prefix + contains).take(limit)
-    }
-
-    fun updatePromptField(value: TextFieldValue) {
-        val textChanged = value.text != promptFieldValue.text
-        val selectionChanged = value.selection != promptFieldValue.selection
-        promptFieldValue = value
-        if (textChanged) {
-            prompt = value.text
+    val onSeedChange = remember {
+        { value: String ->
+            seed = value
             saveAllFields()
         }
-        if (!tagAutocompleteAvailable || !isPromptFocused) {
-            promptSuggestJob?.cancel()
-            promptSuggestions = emptyList()
-            promptActiveQuery = null
-            return
-        }
-        if (!textChanged && !selectionChanged) return
-        val activeTag =
-            TagAutocompleteRepository.extractActiveTag(value.text, value.selection.start)
-        if (activeTag == null) {
-            promptSuggestJob?.cancel()
-            promptSuggestions = emptyList()
-            promptActiveQuery = null
-            return
-        }
-        promptActiveQuery = activeTag.token
-        promptSuggestJob?.cancel()
-        promptSuggestJob = scope.launch {
-            delay(200)
-            val embeddings = embeddingSuggestionsFor(activeTag.token)
-            val results = tagAutocompleteRepository.suggest(activeTag.token, tagSuggestionCount)
-            // Embeddings always pinned to the top; their relevance is local to
-            // this user, so they outrank dictionary suggestions by construction.
-            promptSuggestions = embeddings + results
-        }
     }
+    promptField.onTextCommitted = { saveAllFields() }
+    negativePromptField.onTextCommitted = { saveAllFields() }
 
-    fun updateNegativePromptField(value: TextFieldValue) {
-        val textChanged = value.text != negativePromptFieldValue.text
-        val selectionChanged = value.selection != negativePromptFieldValue.selection
-        negativePromptFieldValue = value
-        if (textChanged) {
-            negativePrompt = value.text
-            saveAllFields()
-        }
-        if (!tagAutocompleteAvailable || !isNegativePromptFocused) {
-            negativePromptSuggestJob?.cancel()
-            negativePromptSuggestions = emptyList()
-            negativePromptActiveQuery = null
-            return
-        }
-        if (!textChanged && !selectionChanged) return
-        val activeTag =
-            TagAutocompleteRepository.extractActiveTag(value.text, value.selection.start)
-        if (activeTag == null) {
-            negativePromptSuggestJob?.cancel()
-            negativePromptSuggestions = emptyList()
-            negativePromptActiveQuery = null
-            return
-        }
-        negativePromptActiveQuery = activeTag.token
-        negativePromptSuggestJob?.cancel()
-        negativePromptSuggestJob = scope.launch {
-            delay(200)
-            val embeddings = embeddingSuggestionsFor(activeTag.token)
-            val results = tagAutocompleteRepository.suggest(activeTag.token, tagSuggestionCount)
-            negativePromptSuggestions = embeddings + results
-        }
-    }
-
-    fun applyPromptSuggestion(suggestion: TagSuggestion) {
-        val (updatedText, updatedSelection) = TagAutocompleteRepository.applySuggestion(
-            promptFieldValue.text,
-            promptFieldValue.selection.start,
-            suggestion
-        )
-        prompt = updatedText
-        promptFieldValue = TextFieldValue(updatedText, TextRange(updatedSelection))
-        promptSuggestions = emptyList()
-        promptActiveQuery = null
-        saveAllFields()
-    }
-
-    fun applyNegativePromptSuggestion(suggestion: TagSuggestion) {
-        val (updatedText, updatedSelection) = TagAutocompleteRepository.applySuggestion(
-            negativePromptFieldValue.text,
-            negativePromptFieldValue.selection.start,
-            suggestion
-        )
-        negativePrompt = updatedText
-        negativePromptFieldValue = TextFieldValue(updatedText, TextRange(updatedSelection))
-        negativePromptSuggestions = emptyList()
-        negativePromptActiveQuery = null
-        saveAllFields()
-    }
+    PromptTokenCountEffect(promptField, backendReady = !isCheckingBackend)
+    PromptTokenCountEffect(negativePromptField, backendReady = !isCheckingBackend)
 
     val onBatchCountsChange = remember {
         { value: Float ->
-            batchCounts = value.roundToInt().coerceIn(1, 100)
+            batchCounts = value.roundToInt().coerceIn(1, 10)
             saveAllFields()
         }
     }
@@ -816,6 +597,7 @@ fun ModelRunScreen(
         showCropScreen = true
     }
 
+    @Suppress("UnusedParameter") // base64String from cropify callback is re-derived later
     fun handleCropComplete(base64String: String, bitmap: Bitmap, rect: AndroidRect) {
         showCropScreen = false
         val sourceUri = imageUriForCrop
@@ -851,7 +633,7 @@ fun ModelRunScreen(
                             @Suppress("DEPRECATION")
                             val decoder = BitmapRegionDecoder.newInstance(input, false)
                                 ?: throw IllegalStateException(
-                                    "BitmapRegionDecoder.newInstance returned null"
+                                    "BitmapRegionDecoder.newInstance returned null",
                                 )
                             try {
                                 val safeLeft = rect.left.coerceAtLeast(0)
@@ -860,11 +642,16 @@ fun ModelRunScreen(
                                 val safeBottom = rect.bottom.coerceAtMost(decoder.height)
                                 if (safeRight > safeLeft && safeBottom > safeTop) {
                                     val region = AndroidRect(
-                                        safeLeft, safeTop, safeRight, safeBottom
+                                        safeLeft,
+                                        safeTop,
+                                        safeRight,
+                                        safeBottom,
                                     )
                                     clampedRect = region
                                     decoder.decodeRegion(region, BitmapFactory.Options())
-                                } else null
+                                } else {
+                                    null
+                                }
                             } finally {
                                 decoder.recycle()
                             }
@@ -873,7 +660,7 @@ fun ModelRunScreen(
                 } catch (e: Exception) {
                     Log.w(
                         "ModelRunScreen",
-                        "BitmapRegionDecoder failed, fall back to cropify bitmap: ${e.message}"
+                        "BitmapRegionDecoder failed, fall back to cropify bitmap: ${e.message}",
                     )
                     null
                 }
@@ -891,14 +678,9 @@ fun ModelRunScreen(
                 val needsPad =
                     scaled.width != currentWidth || scaled.height != currentHeight
                 val payload = if (needsPad) {
-                    val padded = padBitmapToCanvas(scaled, currentWidth, currentHeight)
-                    val baos = ByteArrayOutputStream()
-                    padded.compress(Bitmap.CompressFormat.PNG, 90, baos)
-                    Base64.getEncoder().encodeToString(baos.toByteArray())
+                    bitmapToBase64Png(padBitmapToCanvas(scaled, currentWidth, currentHeight))
                 } else {
-                    val baos = ByteArrayOutputStream()
-                    scaled.compress(Bitmap.CompressFormat.PNG, 90, baos)
-                    Base64.getEncoder().encodeToString(baos.toByteArray())
+                    bitmapToBase64Png(scaled)
                 }
 
                 withContext(Dispatchers.Main) {
@@ -911,7 +693,11 @@ fun ModelRunScreen(
                 base64EncodeDone = true
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        msgSaveFailed.format(e.message ?: msgUnknownError),
+                        Toast.LENGTH_SHORT,
+                    ).show()
                     selectedImageUri = null
                     croppedBitmap = null
                     cropRect = null
@@ -921,11 +707,7 @@ fun ModelRunScreen(
         }
     }
 
-    fun handleInpaintComplete(
-        maskBase64: String,
-        maskBmp: Bitmap,
-        pathHistory: List<PathData>
-    ) {
+    fun handleInpaintComplete(maskBase64: String, maskBmp: Bitmap, pathHistory: List<PathData>) {
         showInpaintScreen = false
         isInpaintMode = true
         maskBitmap = maskBmp
@@ -939,10 +721,7 @@ fun ModelRunScreen(
                 // padded image upload.
                 val needsPad = maskBmp.width != currentWidth || maskBmp.height != currentHeight
                 val payload = if (needsPad) {
-                    val padded = padBitmapToCanvas(maskBmp, currentWidth, currentHeight)
-                    val baos = ByteArrayOutputStream()
-                    padded.compress(Bitmap.CompressFormat.PNG, 90, baos)
-                    Base64.getEncoder().encodeToString(baos.toByteArray())
+                    bitmapToBase64Png(padBitmapToCanvas(maskBmp, currentWidth, currentHeight))
                 } else {
                     maskBase64
                 }
@@ -954,7 +733,11 @@ fun ModelRunScreen(
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        msgSaveFailed.format(e.message ?: msgUnknownError),
+                        Toast.LENGTH_SHORT,
+                    ).show()
                     isInpaintMode = false
                     maskBitmap = null
                     savedPathHistory = null
@@ -1006,9 +789,7 @@ fun ModelRunScreen(
                     }
 
                 val base64String = withContext(Dispatchers.IO) {
-                    val baos = ByteArrayOutputStream()
-                    uploadBitmap.compress(Bitmap.CompressFormat.PNG, 90, baos)
-                    Base64.getEncoder().encodeToString(baos.toByteArray())
+                    bitmapToBase64Png(uploadBitmap)
                 }
 
                 withContext(Dispatchers.IO) {
@@ -1026,8 +807,8 @@ fun ModelRunScreen(
             } catch (e: Exception) {
                 Toast.makeText(
                     context,
-                    "img2img failed: ${e.message}",
-                    Toast.LENGTH_SHORT
+                    msgImg2imgFailed.format(e.message ?: msgUnknownError),
+                    Toast.LENGTH_SHORT,
                 ).show()
                 base64EncodeDone = false
                 selectedImageUri = null
@@ -1047,42 +828,112 @@ fun ModelRunScreen(
         }
     }
 
+    // Runs tiled img2img ("ultrafix") over the currently displayed (upscaled)
+    // bitmap at its full resolution, using the prompt-page parameters. The
+    // base image goes through its own file so a pending img2img selection in
+    // tmp.txt is left untouched.
+    fun startUltrafix() {
+        val bmp = currentBitmap ?: return
+        val tileSize = maxOf(currentWidth, currentHeight)
+        val totalSteps = ultrafixSteps.roundToInt()
+        // Derive the strength that makes the backend run exactly the chosen
+        // number of denoise steps (clamped to the total).
+        val ultrafixDenoiseStrength = ultrafixDenoiseStrength(ultrafixDenoiseSteps, totalSteps)
+        isUltrafixPreparing = true
+        generationParamsTmp = GenerationParameters(
+            steps = totalSteps,
+            cfg = cfg,
+            seed = 0,
+            prompt = promptField.text,
+            negativePrompt = negativePromptField.text,
+            generationTime = "",
+            width = bmp.width,
+            height = bmp.height,
+            runOnCpu = false,
+            denoiseStrength = ultrafixDenoiseStrength,
+            useOpenCL = false,
+            scheduler = scheduler,
+        )
+        batchGenerationJob = coroutineScope.launch {
+            // The progress card lives on the prompt page; bring it into view.
+            try {
+                pagerState.animateScrollToPage(0)
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                // Scroll interrupted by another gesture; the run still starts.
+            }
+            val started = try {
+                withContext(Dispatchers.IO) {
+                    File(context.filesDir, "ultrafix.txt").writeText(bitmapToBase64Jpeg(bmp))
+                }
+                pendingUltrafix = true
+                val intent = Intent(context, BackgroundGenerationService::class.java).apply {
+                    putExtra("prompt", promptField.text)
+                    putExtra("negative_prompt", negativePromptField.text)
+                    putExtra("steps", totalSteps)
+                    putExtra("cfg", cfg)
+                    seed.toLongOrNull()?.let { putExtra("seed", it) }
+                    putExtra("width", bmp.width)
+                    putExtra("height", bmp.height)
+                    putExtra("effective_width", bmp.width)
+                    putExtra("effective_height", bmp.height)
+                    putExtra("denoise_strength", ultrafixDenoiseStrength)
+                    putExtra("scheduler", scheduler)
+                    putExtra("ultrafix", true)
+                    putExtra("ultrafix_tile_size", tileSize)
+                }
+                context.startForegroundService(intent)
+                true
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                pendingUltrafix = false
+                Toast.makeText(
+                    context,
+                    msgUltrafixFailed.format(e.message ?: "Unknown error"),
+                    Toast.LENGTH_SHORT,
+                ).show()
+                false
+            } finally {
+                isUltrafixPreparing = false
+            }
+            if (!started) return@launch
+
+            // Same teardown as the batch loop: wait for the terminal state and
+            // the service stop, then clear the running flag so the prompt-page
+            // progress card doesn't linger at 0%.
+            BackgroundGenerationService.generationState.first { state ->
+                state is GenerationState.Complete || state is GenerationState.Error
+            }
+            withTimeoutOrNull(5000L) {
+                BackgroundGenerationService.isServiceRunning.first { !it }
+            }
+            BackgroundGenerationService.resetState()
+            isRunning = false
+        }
+    }
+
     val photoPickerLauncher = rememberLauncherForActivityResult(
-        PickVisualMedia()
+        PickVisualMedia(),
     ) { uri ->
         uri?.let { processSelectedImage(it) }
     }
 
     val contentPickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
+        ActivityResultContracts.GetContent(),
     ) { uri ->
         uri?.let { processSelectedImage(it) }
     }
 
-    val requestMediaImagePermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            contentPickerLauncher.launch("image/*")
-        } else {
-            Toast.makeText(
-                context,
-                context.getString(R.string.media_permission_hint),
-                Toast.LENGTH_SHORT
-            ).show()
-        }
-    }
-
     val requestStoragePermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
+        ActivityResultContracts.RequestPermission(),
     ) { isGranted ->
         if (isGranted) {
             contentPickerLauncher.launch("image/*")
         } else {
             Toast.makeText(
                 context,
-                context.getString(R.string.media_permission_hint),
-                Toast.LENGTH_SHORT
+                msgMediaPermissionHint,
+                Toast.LENGTH_SHORT,
             ).show()
         }
     }
@@ -1100,7 +951,7 @@ fun ModelRunScreen(
                 when {
                     ContextCompat.checkSelfPermission(
                         context,
-                        Manifest.permission.READ_EXTERNAL_STORAGE
+                        Manifest.permission.READ_EXTERNAL_STORAGE,
                     ) == PackageManager.PERMISSION_GRANTED -> {
                         contentPickerLauncher.launch("image/*")
                     }
@@ -1113,29 +964,25 @@ fun ModelRunScreen(
         }
     }
 
-    fun handleSaveImage(
-        context: Context,
-        bitmap: Bitmap,
-        onSuccess: () -> Unit,
-        onError: (String) -> Unit
-    ) {
+    fun handleSaveImage(context: Context, bitmap: Bitmap, onSuccess: () -> Unit, onError: (String) -> Unit) {
         if (!checkStoragePermission(context)) {
             onError("need storage permission to save image")
             return
         }
 
         // Only stitch when:
-        //  - the image currently shown is the most recent inpaint generation (matched
-        //    via history-item id, so clicking another thumbnail and back still works
-        //    while clicks on unrelated thumbnails or upscaled results don't stitch), and
+        //  - the image currently shown is the most recent inpaint generation or an
+        //    upscaled copy of it (matched via history-item id, so clicking another
+        //    thumbnail and back still works while clicks on unrelated thumbnails
+        //    don't stitch), and
         //  - the source img2img/inpaint image was a real gallery image with a decodable
         //    URI (not a synthetic tmp.txt from sendBitmapToImg2img).
         val shouldStitch = snapshotIsInpaintMode &&
-                snapshotCropRect != null &&
-                snapshotSelectedImageUri != null &&
-                snapshotHasOriginalImage &&
-                snapshotHistoryItemId != null &&
-                currentDisplayedHistoryId == snapshotHistoryItemId
+            snapshotCropRect != null &&
+            snapshotSelectedImageUri != null &&
+            snapshotHasOriginalImage &&
+            currentDisplayedHistoryId != null &&
+            currentDisplayedHistoryId in stitchableHistoryIds
 
         coroutineScope.launch {
             if (shouldStitch) {
@@ -1152,19 +999,23 @@ fun ModelRunScreen(
                         val rectH = snapshotCropRect!!.height()
                         val resizedPatch = bitmap.scale(rectW, rectH)
 
-                        val canvas = Canvas(mutableOriginal)
-                        canvas.drawBitmap(
-                            resizedPatch,
-                            snapshotCropRect!!.left.toFloat(),
-                            snapshotCropRect!!.top.toFloat(),
-                            null
+                        // Feather-blend along the mask instead of pasting the
+                        // whole rectangle: the patch's unmasked pixels went
+                        // through a resample round trip and differ subtly from
+                        // the original, which shows up as a square seam.
+                        drawInpaintPatch(
+                            target = mutableOriginal,
+                            patch = resizedPatch,
+                            mask = snapshotMaskBitmap,
+                            left = snapshotCropRect!!.left,
+                            top = snapshotCropRect!!.top,
                         )
 
                         saveImage(
                             context = context,
                             bitmap = mutableOriginal,
                             onSuccess = onSuccess,
-                            onError = onError
+                            onError = onError,
                         )
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
@@ -1177,7 +1028,7 @@ fun ModelRunScreen(
                     context = context,
                     bitmap = bitmap,
                     onSuccess = onSuccess,
-                    onError = onError
+                    onError = onError,
                 )
             }
         }
@@ -1187,9 +1038,16 @@ fun ModelRunScreen(
         try {
             currentBitmap = null
             generationParams = null
-            context.sendBroadcast(Intent(BackgroundGenerationService.ACTION_STOP))
+            BackgroundGenerationService.stop(context)
+            // Use an explicit STOP command instead of stopService(): when the
+            // backend was just started, its Service may not have reached
+            // onCreate yet, and stopService() on a not-yet-running Service is a
+            // no-op that would leak the native process. Routing through
+            // onStartCommand(ACTION_STOP) guarantees the stop is honored after
+            // the pending start, mirroring BackgroundGenerationService.stop().
             val backendServiceIntent = Intent(context, BackendService::class.java)
-            context.stopService(backendServiceIntent)
+                .setAction(BackendService.ACTION_STOP)
+            context.startForegroundService(backendServiceIntent)
             isRunning = false
             progress = 0f
             errorMessage = null
@@ -1212,6 +1070,26 @@ fun ModelRunScreen(
         navController.navigateUp()
     }
 
+    // Stops the in-flight generation (single or batch) but keeps the backend
+    // and the screen alive, so the user can immediately generate again.
+    fun interruptGeneration() {
+        batchGenerationJob?.cancel()
+        batchGenerationJob = null
+        BackgroundGenerationService.stop(context)
+        BackgroundGenerationService.resetState()
+        intermediateBitmap = null
+        pendingUltrafix = false
+        isRunning = false
+        progress = 0f
+        currentBatchIndex = 0
+        generationStartTime = null
+        Toast.makeText(
+            context,
+            msgGenerationInterrupted,
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+
     DisposableEffect(modelId) {
         val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         val captureEnabled = prefs.getBoolean("enable_log_capture", false)
@@ -1222,13 +1100,18 @@ fun ModelRunScreen(
             if (captureEnabled) {
                 LogCapture.stopAndPublish()
             }
+            // Safety net for paths that bypass handleExit() (e.g. predictive back
+            // popping the destination while not running).
+            BackgroundGenerationService.clearCompleteState()
         }
     }
 
     LaunchedEffect(modelId, model?.runOnCpu) {
         if (model?.runOnCpu == false && model.isSdxl == false) {
             val baseResolution = Resolution(512, 512)
-            val patchResolutions = PatchScanner.scanAvailableResolutions(context, modelId)
+            val patchResolutions = withContext(Dispatchers.IO) {
+                PatchScanner.scanAvailableResolutions(context, modelId)
+            }
 
             val allResolutions =
                 (listOf(baseResolution) + patchResolutions).distinctBy { "${it.width}x${it.height}" }
@@ -1236,71 +1119,61 @@ fun ModelRunScreen(
         }
     }
 
-    LaunchedEffect(modelId) {
-        if (!hasInitialized) {
+    LaunchedEffect(modelId, model) {
+        if (!hasInitialized && model != null) {
             val prefs = generationPreferences.getPreferences(modelId).first()
+            val isFirstRun = !prefs.hasSaved
+            val defaults = model.defaults
 
-            if (prefs.prompt.isEmpty() && prefs.negativePrompt.isEmpty()) {
-                model?.let { m ->
-                    if (m.defaultPrompt.isNotEmpty()) {
-                        prompt = m.defaultPrompt
-                        promptFieldValue =
-                            TextFieldValue(m.defaultPrompt, TextRange(m.defaultPrompt.length))
-                    }
-                    if (m.defaultNegativePrompt.isNotEmpty()) {
-                        negativePrompt = m.defaultNegativePrompt
-                        negativePromptFieldValue = TextFieldValue(
-                            m.defaultNegativePrompt,
-                            TextRange(m.defaultNegativePrompt.length)
-                        )
-                    }
-                    saveAllFields()
-                }
-            } else {
-                prompt = prefs.prompt
-                negativePrompt = prefs.negativePrompt
-                promptFieldValue = TextFieldValue(prefs.prompt, TextRange(prefs.prompt.length))
-                negativePromptFieldValue =
-                    TextFieldValue(prefs.negativePrompt, TextRange(prefs.negativePrompt.length))
-            }
+            promptField.replaceText(if (isFirstRun) defaults.prompt else prefs.prompt)
+            negativePromptField.replaceText(
+                if (isFirstRun) defaults.negativePrompt else prefs.negativePrompt,
+            )
 
-            steps = prefs.steps
-            cfg = prefs.cfg
+            steps = if (isFirstRun) defaults.steps else prefs.steps
+            cfg = if (isFirstRun) defaults.cfg else prefs.cfg
             seed = prefs.seed
             denoiseStrength = prefs.denoiseStrength
             useOpenCL = prefs.useOpenCL
             batchCounts = prefs.batchCounts
-            scheduler = prefs.scheduler
-            aspectRatio = prefs.aspectRatio
+            scheduler = if (isFirstRun) defaults.scheduler else prefs.scheduler
+            // Without img2img the backend has no VAE encoder, so a stored
+            // non-1:1 ratio would silently fall back to 1024x1024 anyway.
+            aspectRatio = if (useImg2img) prefs.aspectRatio else "1:1"
 
-            currentWidth =
-                if (model?.isSdxl == true) 1024
-                else if (prefs.width == -1) (if (model?.runOnCpu == true) 256 else 512)
-                else prefs.width
-            currentHeight =
-                if (model?.isSdxl == true) 1024
-                else if (prefs.height == -1) (if (model?.runOnCpu == true) 256 else 512)
-                else prefs.height
+            currentWidth = when {
+                model.isSdxl -> 1024
+                prefs.width == -1 -> defaultGenerationSize(isSdxl = false, runOnCpu = model.runOnCpu)
+                else -> prefs.width
+            }
+            currentHeight = when {
+                model.isSdxl -> 1024
+                prefs.height == -1 -> defaultGenerationSize(isSdxl = false, runOnCpu = model.runOnCpu)
+                else -> prefs.height
+            }
+
+            if (isFirstRun) {
+                saveAllFields()
+            }
 
             hasInitialized = true
         }
     }
 
     LaunchedEffect(hasInitialized) {
-        if (hasInitialized && backendState !is BackendService.BackendState.Running) {
+        if (hasInitialized) {
+            // Always declare the target; BackendService reconciles idempotently
+            // (reuses a live process for the same model, restarts otherwise).
+            // Reading the shared backendState here to decide would race with the
+            // previous screen's still-pending stop and could skip the start.
             val intent = Intent(context, BackendService::class.java).apply {
                 putExtra("modelId", model?.id)
+                putExtra("backendType", model?.backendType)
                 putExtra("width", currentWidth)
                 putExtra("height", currentHeight)
                 putExtra("use_opencl", useOpenCL)
             }
             context.startForegroundService(intent)
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            cleanup()
         }
     }
 
@@ -1319,6 +1192,25 @@ fun ModelRunScreen(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             cleanup()
+        }
+    }
+
+    // Seed the result page with the most recent history image when nothing
+    // has been generated this session yet; the empty state only remains for
+    // models without any history. Re-checked after the decode so a result
+    // that completed meanwhile is never overwritten.
+    LaunchedEffect(recentHistory) {
+        if (currentBitmap != null) return@LaunchedEffect
+        val item = recentHistory.firstOrNull() ?: return@LaunchedEffect
+        val bitmap = withContext(Dispatchers.IO) {
+            BitmapFactory.decodeFile(item.imageFile.absolutePath)
+        }
+        if (bitmap != null && currentBitmap == null) {
+            currentBitmap = bitmap
+            generationParams = item.params
+            generationParamsModelId = item.modelId
+            currentDisplayedHistoryId = item.id
+            imageVersion++
         }
     }
 
@@ -1346,16 +1238,22 @@ fun ModelRunScreen(
                         val duration = endTime - startTime
                         when {
                             duration < 1000 -> "${duration}ms"
-                            duration < 60000 -> String.format("%.1fs", duration / 1000.0)
+
+                            duration < 60000 -> String.format(Locale.US, "%.1fs", duration / 1000.0)
+
                             else -> String.format(
+                                Locale.US,
                                 "%dm%ds",
                                 duration / 60000,
-                                (duration % 60000) / 1000
+                                (duration % 60000) / 1000,
                             )
                         }
                     }
 
+                    val wasUltrafix = pendingUltrafix
+                    pendingUltrafix = false
                     val currentGenerationMode = when {
+                        wasUltrafix -> GenerationMode.ULTRAFIX
                         isInpaintMode -> GenerationMode.INPAINT
                         selectedImageUri != null -> GenerationMode.IMG2IMG
                         else -> GenerationMode.TXT2IMG
@@ -1390,7 +1288,11 @@ fun ModelRunScreen(
                         )
                         if (savedItem != null) {
                             withContext(Dispatchers.Main) {
-                                snapshotHistoryItemId = savedItem.id
+                                // An ultrafix result is a standalone image, not a
+                                // stitchable inpaint patch.
+                                if (!wasUltrafix) {
+                                    stitchableHistoryIds = setOf(savedItem.id)
+                                }
                                 currentDisplayedHistoryId = savedItem.id
                             }
                         }
@@ -1401,18 +1303,21 @@ fun ModelRunScreen(
                     generationParamsModelId = modelId
                     imageVersion += 1
 
-                    snapshotIsInpaintMode = isInpaintMode
-                    snapshotSelectedImageUri = selectedImageUri
-                    snapshotCropRect = cropRect
-                    snapshotHasOriginalImage = hasOriginalImageForStitch
-                    // snapshotHistoryItemId / currentDisplayedHistoryId are set once
+                    if (!wasUltrafix) {
+                        snapshotIsInpaintMode = isInpaintMode
+                        snapshotSelectedImageUri = selectedImageUri
+                        snapshotCropRect = cropRect
+                        snapshotMaskBitmap = if (isInpaintMode) maskBitmap else null
+                        snapshotHasOriginalImage = hasOriginalImageForStitch
+                    }
+                    // stitchableHistoryIds / currentDisplayedHistoryId are set once
                     // the DB save above resolves.
-                    snapshotHistoryItemId = null
+                    stitchableHistoryIds = emptySet()
                     currentDisplayedHistoryId = null
 
                     Log.d(
                         "ModelRunScreen",
-                        "params update: ${generationParams?.steps}, ${generationParams?.cfg}"
+                        "params update: ${generationParams?.steps}, ${generationParams?.cfg}",
                     )
 
                     generationStartTime = null
@@ -1435,6 +1340,7 @@ fun ModelRunScreen(
                 isRunning = false
                 progress = 0f
                 generationStartTime = null
+                pendingUltrafix = false
             }
 
             else -> {
@@ -1444,278 +1350,165 @@ fun ModelRunScreen(
         }
     }
 
-    BackHandler {
-        if (isRunning) {
-            showExitDialog = true
-        } else {
-            handleExit()
-        }
+    // Only intercept back while a generation is running: back then offers to
+    // interrupt the generation and stays on the screen (a second back exits).
+    // In idle state the predictive back gesture can show NavHost's peek of
+    // the previous destination.
+    if (isRunning) {
+        BackHandler { showInterruptDialog = true }
     }
 
-    if (showExitDialog) {
-        AlertDialog(
-            onDismissRequest = { showExitDialog = false },
-            title = { Text(stringResource(R.string.confirm_exit)) },
-            text = { Text(stringResource(R.string.confirm_exit_hint)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showExitDialog = false
-                        handleExit()
-                    }
-                ) {
-                    Text(stringResource(R.string.confirm))
-                }
+    if (showInterruptDialog) {
+        ModelRunConfirmDialog(
+            title = stringResource(R.string.interrupt_generation),
+            text = stringResource(R.string.interrupt_generation_hint),
+            onConfirm = {
+                showInterruptDialog = false
+                interruptGeneration()
             },
-            dismissButton = {
-                TextButton(onClick = { showExitDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
+            onDismiss = { showInterruptDialog = false },
         )
     }
     if (showOpenCLWarningDialog) {
-        AlertDialog(
-            onDismissRequest = { showOpenCLWarningDialog = false },
-            title = { Text("GPU Runtime Warning") },
-            text = { Text(stringResource(R.string.opencl_warning)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showOpenCLWarningDialog = false
-                        useOpenCL = true
-                        saveAllFields()
-                    }
-                ) {
-                    Text(stringResource(R.string.confirm))
-                }
+        ModelRunConfirmDialog(
+            title = stringResource(R.string.gpu_runtime_warning_title),
+            text = stringResource(R.string.opencl_warning),
+            onConfirm = {
+                showOpenCLWarningDialog = false
+                useOpenCL = true
+                saveAllFields()
             },
-            dismissButton = {
-                TextButton(onClick = { showOpenCLWarningDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
+            onDismiss = { showOpenCLWarningDialog = false },
         )
     }
 
     if (showCustomAspectRatioDialog) {
-        var ratioWStr by remember { mutableStateOf("") }
-        var ratioHStr by remember { mutableStateOf("") }
-        var ratioError by remember { mutableStateOf(false) }
-        AlertDialog(
-            onDismissRequest = { showCustomAspectRatioDialog = false },
-            title = { Text(stringResource(R.string.aspect_ratio_custom_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        stringResource(R.string.aspect_ratio_custom_hint),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = ratioWStr,
-                            onValueChange = {
-                                ratioWStr = it.filter { c -> c.isDigit() }.take(5); ratioError =
-                                false
-                            },
-                            label = { Text("W") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f),
-                            shape = MaterialTheme.shapes.medium,
-                            isError = ratioError
-                        )
-                        Text(":", style = MaterialTheme.typography.titleLarge)
-                        OutlinedTextField(
-                            value = ratioHStr,
-                            onValueChange = {
-                                ratioHStr = it.filter { c -> c.isDigit() }.take(5); ratioError =
-                                false
-                            },
-                            label = { Text("H") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f),
-                            shape = MaterialTheme.shapes.medium,
-                            isError = ratioError
-                        )
-                    }
-                    if (ratioError) {
-                        Text(
-                            stringResource(R.string.aspect_ratio_invalid),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
+        CustomAspectRatioDialog(
+            onConfirm = { newRatio ->
+                if (newRatio != aspectRatio) {
+                    aspectRatio = newRatio
+                    clearImg2imgState()
+                    saveAllFields()
                 }
+                showCustomAspectRatioDialog = false
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    val w = ratioWStr.toIntOrNull()
-                    val h = ratioHStr.toIntOrNull()
-                    if (w != null && h != null && w > 0 && h > 0) {
-                        val newRatio = "$w:$h"
-                        if (newRatio != aspectRatio) {
-                            aspectRatio = newRatio
-                            clearImg2imgState()
-                            saveAllFields()
-                        }
-                        showCustomAspectRatioDialog = false
-                    } else {
-                        ratioError = true
-                    }
-                }) { Text(stringResource(R.string.confirm)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCustomAspectRatioDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
+            onDismiss = { showCustomAspectRatioDialog = false },
         )
     }
 
     if (showResolutionChangeDialog && pendingResolution != null) {
-        AlertDialog(
-            onDismissRequest = {
+        ModelRunConfirmDialog(
+            title = stringResource(R.string.switch_resolution),
+            text = stringResource(R.string.switch_resolution_hint),
+            onConfirm = {
+                pendingResolution?.let { resolution ->
+                    // Check aspect ratio change
+                    val oldRatio =
+                        if (currentHeight > 0) currentWidth.toFloat() / currentHeight.toFloat() else 1f
+                    val newRatio =
+                        if (resolution.height >
+                            0
+                        ) {
+                            resolution.width.toFloat() / resolution.height.toFloat()
+                        } else {
+                            1f
+                        }
+
+                    if (kotlin.math.abs(oldRatio - newRatio) > 0.01f) {
+                        clearImg2imgState()
+                    }
+
+                    currentWidth = resolution.width
+                    currentHeight = resolution.height
+                    scope.launch {
+                        generationPreferences.saveResolution(
+                            modelId,
+                            resolution.width,
+                            resolution.height,
+                        )
+                    }
+                    model?.let { m ->
+                        val serviceIntent =
+                            Intent(context, BackendService::class.java).apply {
+                                action = BackendService.ACTION_RESTART
+                                putExtra("modelId", modelId)
+                                putExtra("backendType", m.backendType)
+                                putExtra("width", resolution.width)
+                                putExtra("height", resolution.height)
+                            }
+                        context.startForegroundService(serviceIntent)
+                        isCheckingBackend = true
+                        backendRestartTrigger++
+                    }
+                }
+                showResolutionChangeDialog = false
+                pendingResolution = null
+                showAdvancedSettings = false
+            },
+            onDismiss = {
                 showResolutionChangeDialog = false
                 pendingResolution = null
             },
-            title = { Text(stringResource(R.string.switch_resolution)) },
-            text = { Text(stringResource(R.string.switch_resolution_hint)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingResolution?.let { resolution ->
-                            // Check aspect ratio change
-                            val oldRatio =
-                                if (currentHeight > 0) currentWidth.toFloat() / currentHeight.toFloat() else 1f
-                            val newRatio =
-                                if (resolution.height > 0) resolution.width.toFloat() / resolution.height.toFloat() else 1f
-
-                            if (kotlin.math.abs(oldRatio - newRatio) > 0.01f) {
-                                // Clear img2img data
-                                selectedImageUri = null
-                                croppedBitmap = null
-                                maskBitmap = null
-                                isInpaintMode = false
-                                cropRect = null
-                                savedPathHistory = null
-                                base64EncodeDone = false
-                                hasOriginalImageForStitch = false
-                            }
-
-                            currentWidth = resolution.width
-                            currentHeight = resolution.height
-                            scope.launch {
-                                generationPreferences.saveResolution(
-                                    modelId,
-                                    resolution.width,
-                                    resolution.height
-                                )
-                            }
-                            model?.let { m ->
-                                val serviceIntent =
-                                    Intent(context, BackendService::class.java).apply {
-                                        action = BackendService.ACTION_RESTART
-                                        putExtra("modelId", modelId)
-                                        putExtra("width", resolution.width)
-                                        putExtra("height", resolution.height)
-                                    }
-                                context.startForegroundService(serviceIntent)
-                                isCheckingBackend = true
-                                backendRestartTrigger++
-                            }
-                        }
-                        showResolutionChangeDialog = false
-                        pendingResolution = null
-                        showAdvancedSettings = false
-                    }
-                ) {
-                    Text(stringResource(R.string.confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showResolutionChangeDialog = false
-                        pendingResolution = null
-                    }
-                ) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
         )
     }
 
     if (showResetConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showResetConfirmDialog = false },
-            title = { Text(stringResource(R.string.reset)) },
-            text = { Text(stringResource(R.string.reset_hint)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        steps = 20f
-                        cfg = 7f
-                        seed = ""
-                        batchCounts = 1
-                        scheduler = "dpm"
-                        aspectRatio = "1:1"
-                        prompt = model?.defaultPrompt ?: ""
-                        negativePrompt = model?.defaultNegativePrompt ?: ""
-                        promptFieldValue = TextFieldValue(prompt, TextRange(prompt.length))
-                        negativePromptFieldValue =
-                            TextFieldValue(negativePrompt, TextRange(negativePrompt.length))
-                        promptSuggestions = emptyList()
-                        negativePromptSuggestions = emptyList()
-                        denoiseStrength = 0.6f
-                        scope.launch(Dispatchers.IO) {
-                            generationPreferences.saveAllFields(
-                                modelId = modelId,
-                                prompt = model?.defaultPrompt ?: "",
-                                negativePrompt = model?.defaultNegativePrompt ?: "",
-                                steps = 20f,
-                                cfg = 7f,
-                                seed = "",
-                                width = if (model?.isSdxl == true) 1024 else if (model?.runOnCpu == true) 256 else 512,
-                                height = if (model?.isSdxl == true) 1024 else if (model?.runOnCpu == true) 256 else 512,
-                                denoiseStrength = 0.6f,
-                                useOpenCL = useOpenCL,
-                                batchCounts = 1,
-                                scheduler = "dpm",
-                                aspectRatio = "1:1"
-                            )
-                        }
-                        showResetConfirmDialog = false
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
+        ModelRunConfirmDialog(
+            title = stringResource(R.string.reset),
+            text = stringResource(R.string.reset_hint),
+            destructiveConfirm = true,
+            onConfirm = {
+                val defaults = model?.defaults ?: GenerationDefaults.GLOBAL
+                steps = defaults.steps
+                cfg = defaults.cfg
+                seed = defaults.seed
+                batchCounts = defaults.batchCounts
+                scheduler = defaults.scheduler
+                aspectRatio = defaults.aspectRatio
+                promptField.replaceText(defaults.prompt)
+                negativePromptField.replaceText(defaults.negativePrompt)
+                denoiseStrength = defaults.denoiseStrength
+                scope.launch(Dispatchers.IO) {
+                    generationPreferences.saveAllFields(
+                        modelId = modelId,
+                        prompt = defaults.prompt,
+                        negativePrompt = defaults.negativePrompt,
+                        steps = defaults.steps,
+                        cfg = defaults.cfg,
+                        seed = defaults.seed,
+                        width = defaultGenerationSize(
+                            model?.isSdxl == true,
+                            model?.runOnCpu == true,
+                        ),
+                        height = defaultGenerationSize(
+                            model?.isSdxl == true,
+                            model?.runOnCpu == true,
+                        ),
+                        denoiseStrength = defaults.denoiseStrength,
+                        useOpenCL = useOpenCL,
+                        batchCounts = defaults.batchCounts,
+                        scheduler = defaults.scheduler,
+                        aspectRatio = defaults.aspectRatio,
                     )
-                ) {
-                    Text(stringResource(R.string.confirm))
                 }
+                showResetConfirmDialog = false
             },
-            dismissButton = {
-                TextButton(onClick = { showResetConfirmDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
+            onDismiss = { showResetConfirmDialog = false },
         )
     }
 
     LaunchedEffect(Unit) {
         checkBackendHealth(
             backendState = BackendService.backendState,
+            servingModelId = BackendService.servingModelId,
+            expectedModelId = modelId,
             onHealthy = {
                 isCheckingBackend = false
             },
             onUnhealthy = {
                 isCheckingBackend = false
-                errorMessage = context.getString(R.string.backend_failed)
-            }
+                errorMessage = msgBackendFailed
+            },
         )
     }
 
@@ -1724,17 +1517,18 @@ fun ModelRunScreen(
             delay(500)
             checkBackendHealth(
                 backendState = BackendService.backendState,
+                servingModelId = BackendService.servingModelId,
+                expectedModelId = modelId,
                 onHealthy = {
                     isCheckingBackend = false
                 },
                 onUnhealthy = {
                     isCheckingBackend = false
-                    errorMessage = context.getString(R.string.backend_failed)
-                }
+                    errorMessage = msgBackendFailed
+                },
             )
         }
     }
-
 
     // === Page Composable Functions ===
     @Composable
@@ -1742,618 +1536,244 @@ fun ModelRunScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // Reserve the IME area so the scroll viewport ends above the
+                // keyboard; the focused prompt field is then scrolled above the IME
+                // (which also keeps its window position accurate for the popup).
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             AnimatedVisibility(
                 visible = intermediateBitmap == null,
                 enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
-                exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top)
+                exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
             ) {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large
+                    shape = MaterialTheme.shapes.large,
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
                                 stringResource(R.string.prompt_settings),
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
                             )
                             Row(
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 if (useImg2img) {
                                     TextButton(
-                                        onClick = {
-                                            onSelectImageClick()
-                                        }
+                                        onClick = { onSelectImageClick() },
+                                        contentPadding = PaddingValues(
+                                            horizontal = 8.dp,
+                                            vertical = 8.dp,
+                                        ),
                                     ) {
                                         Text(
                                             "img2img",
                                             style = MaterialTheme.typography.bodyMedium,
-                                            modifier = Modifier.padding(end = 4.dp)
+                                            modifier = Modifier.padding(end = 4.dp),
                                         )
                                         Icon(
                                             Icons.Default.Image,
                                             contentDescription = "select image",
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(20.dp),
                                         )
                                     }
                                 }
                                 TextButton(
-                                    onClick = { showAdvancedSettings = true }
+                                    onClick = { showAdvancedSettings = true },
+                                    contentPadding = PaddingValues(
+                                        horizontal = 8.dp,
+                                        vertical = 8.dp,
+                                    ),
                                 ) {
                                     Text(
                                         stringResource(R.string.advanced_settings),
                                         style = MaterialTheme.typography.bodyMedium,
-                                        modifier = Modifier.padding(end = 4.dp)
+                                        modifier = Modifier.padding(end = 4.dp),
                                     )
                                     Icon(
                                         Icons.Default.Settings,
                                         contentDescription = stringResource(R.string.settings),
-                                        modifier = Modifier.size(20.dp)
+                                        modifier = Modifier.size(20.dp),
                                     )
                                 }
                             }
                             if (showAdvancedSettings) {
-                                AlertDialog(
-                                    onDismissRequest = {
-                                        showAdvancedSettings = false
-                                    },
-                                    title = {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                stringResource(R.string.advanced_settings_title),
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            IconButton(onClick = {
-                                                val clipboard =
-                                                    context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                                val raw = clipboard?.primaryClip
-                                                    ?.takeIf { it.itemCount > 0 }
-                                                    ?.getItemAt(0)
-                                                    ?.coerceToText(context)
-                                                    ?.toString()
-                                                val imported = ParamShare.tryDecode(raw)
-                                                if (imported != null) {
-                                                    pendingImport = imported
-                                                    clipboardImportChecked = true
-                                                } else {
-                                                    Toast.makeText(
-                                                        context,
-                                                        context.getString(R.string.import_no_params),
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }
-                                            }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.ContentPaste,
-                                                    contentDescription = stringResource(R.string.import_from_clipboard)
-                                                )
-                                            }
-                                            IconButton(onClick = {
-                                                val currentMode = when {
-                                                    isInpaintMode -> GenerationMode.INPAINT
-                                                    selectedImageUri != null -> GenerationMode.IMG2IMG
-                                                    else -> GenerationMode.TXT2IMG
-                                                }
-                                                shareSourceParams = GenerationParameters(
-                                                    steps = steps.toInt(),
-                                                    cfg = cfg,
-                                                    seed = seed.toLongOrNull(),
-                                                    prompt = prompt,
-                                                    negativePrompt = negativePrompt,
-                                                    generationTime = null,
-                                                    width = currentWidth,
-                                                    height = currentHeight,
-                                                    runOnCpu = model?.runOnCpu ?: false,
-                                                    denoiseStrength = denoiseStrength,
-                                                    useOpenCL = useOpenCL,
-                                                    scheduler = scheduler,
-                                                    mode = currentMode,
-                                                )
-                                                shareSourceModelId = modelId
-                                            }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Share,
-                                                    contentDescription = stringResource(R.string.share)
-                                                )
-                                            }
+                                AdvancedSettingsDialog(
+                                    isSdxl = model?.isSdxl == true,
+                                    runOnCpu = model?.runOnCpu ?: false,
+                                    useImg2img = useImg2img,
+                                    isRunning = isRunning,
+                                    aspectRatio = aspectRatio,
+                                    availableResolutions = availableResolutions,
+                                    currentWidth = currentWidth,
+                                    currentHeight = currentHeight,
+                                    scheduler = scheduler,
+                                    steps = steps,
+                                    cfg = cfg,
+                                    useOpenCL = useOpenCL,
+                                    batchCounts = batchCounts,
+                                    denoiseStrength = denoiseStrength,
+                                    seed = seed,
+                                    returnedSeed = returnedSeed,
+                                    onAspectRatioSelected = { ratio ->
+                                        if (!isRunning && aspectRatio != ratio) {
+                                            aspectRatio = ratio
+                                            clearImg2imgState()
+                                            saveAllFields()
                                         }
                                     },
-                                    text = {
-                                        Column(
-                                            verticalArrangement = Arrangement.spacedBy(
-                                                2.dp
-                                            ),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .verticalScroll(rememberScrollState())
-                                                .padding(vertical = 4.dp)
-                                        ) {
-                                            if (model?.isSdxl == true) {
-                                                Column(modifier = Modifier.fillMaxWidth()) {
-                                                    Text(
-                                                        stringResource(R.string.aspect_ratio),
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                    val presets = listOf("1:1", "3:4", "4:3")
-                                                    val isCustom = aspectRatio !in presets
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .horizontalScroll(rememberScrollState()),
-                                                        horizontalArrangement = Arrangement.spacedBy(
-                                                            8.dp
-                                                        )
-                                                    ) {
-                                                        presets.forEach { ratio ->
-                                                            FilterChip(
-                                                                selected = aspectRatio == ratio,
-                                                                onClick = {
-                                                                    if (!isRunning && aspectRatio != ratio) {
-                                                                        aspectRatio = ratio
-                                                                        clearImg2imgState()
-                                                                        saveAllFields()
-                                                                    }
-                                                                },
-                                                                label = { Text(ratio) },
-                                                                enabled = !isRunning
-                                                            )
-                                                        }
-                                                        FilterChip(
-                                                            selected = isCustom,
-                                                            onClick = {
-                                                                if (!isRunning) {
-                                                                    showCustomAspectRatioDialog =
-                                                                        true
-                                                                }
-                                                            },
-                                                            label = {
-                                                                Text(
-                                                                    if (isCustom) aspectRatio
-                                                                    else stringResource(R.string.aspect_ratio_custom)
-                                                                )
-                                                            },
-                                                            enabled = !isRunning
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                            if (model?.runOnCpu == false && model.isSdxl == false && availableResolutions.isNotEmpty()) {
-                                                Column(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    // verticalArrangement = Arrangement.spacedBy(
-                                                    //     4.dp
-                                                    // )
-                                                ) {
-                                                    Text(
-                                                        stringResource(R.string.resolution),
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .horizontalScroll(
-                                                                rememberScrollState()
-                                                            ),
-                                                        horizontalArrangement = Arrangement.spacedBy(
-                                                            8.dp
-                                                        )
-                                                    ) {
-                                                        availableResolutions.forEach { resolution ->
-                                                            FilterChip(
-                                                                selected = currentWidth == resolution.width && currentHeight == resolution.height,
-                                                                onClick = {
-                                                                    if (!isRunning && (resolution.width != currentWidth || resolution.height != currentHeight)) {
-                                                                        pendingResolution =
-                                                                            resolution
-                                                                        showResolutionChangeDialog =
-                                                                            true
-                                                                    }
-                                                                },
-                                                                label = {
-                                                                    Text(
-                                                                        resolution.toString()
-                                                                    )
-                                                                },
-                                                                enabled = !isRunning
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            Column(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                // verticalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                // Split scheduler id into base + Karras flag so the UI
-                                                // can offer one base chip per family plus a single
-                                                // Karras switch, instead of listing every combination.
-                                                val baseId = scheduler.removeSuffix("_karras")
-                                                val karras = scheduler.endsWith("_karras")
-                                                val karrasSupported = baseId != "lcm"
-                                                val baseOptions = listOf(
-                                                    "dpm" to "DPM++ 2M",
-                                                    "dpm_sde" to "DPM++ 2M SDE",
-                                                    "euler_a" to "Euler A",
-                                                    "euler" to "Euler",
-                                                    "lcm" to "LCM",
-                                                )
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                ) {
-                                                    Text(
-                                                        stringResource(R.string.scheduler),
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        modifier = Modifier.weight(1f),
-                                                    )
-                                                    Text(
-                                                        "Karras",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        modifier = Modifier
-                                                            .padding(end = 8.dp)
-                                                            .alpha(if (karrasSupported) 1f else 0.4f),
-                                                    )
-                                                    CompositionLocalProvider(
-                                                        LocalMinimumInteractiveComponentSize provides Dp.Unspecified
-                                                    ) {
-                                                        Switch(
-                                                            checked = karras && karrasSupported,
-                                                            enabled = karrasSupported,
-                                                            onCheckedChange = { enable ->
-                                                                scheduler = if (enable) {
-                                                                    "${baseId}_karras"
-                                                                } else {
-                                                                    baseId
-                                                                }
-                                                                saveAllFields()
-                                                            },
-                                                            modifier = Modifier.scale(0.8f),
-                                                        )
-                                                    }
-                                                }
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .horizontalScroll(rememberScrollState()),
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    baseOptions.forEach { (id, label) ->
-                                                        FilterChip(
-                                                            selected = baseId == id,
-                                                            onClick = {
-                                                                val nextKarras =
-                                                                    karras && id != "lcm"
-                                                                scheduler = if (nextKarras) {
-                                                                    "${id}_karras"
-                                                                } else {
-                                                                    id
-                                                                }
-                                                                saveAllFields()
-                                                            },
-                                                            label = { Text(label) }
-                                                        )
-                                                    }
-                                                }
-                                            }
-
-                                            Column {
-                                                Text(
-                                                    stringResource(
-                                                        R.string.steps,
-                                                        steps.roundToInt()
-                                                    ),
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                                Slider(
-                                                    value = steps,
-                                                    onValueChange = onStepsChange,
-                                                    valueRange = 1f..50f,
-                                                    steps = 48,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-
-                                            Column {
-                                                Text(
-                                                    "CFG Scale: %.1f".format(cfg),
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                                Slider(
-                                                    value = cfg,
-                                                    onValueChange = onCfgChange,
-                                                    valueRange = 1f..30f,
-                                                    steps = 57,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-                                            if (model?.runOnCpu ?: false) {
-                                                Column {
-                                                    Text(
-                                                        stringResource(
-                                                            R.string.image_size,
-                                                            currentWidth,
-                                                            currentHeight
-                                                        ),
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                    Slider(
-                                                        value = currentWidth.toFloat(),
-                                                        onValueChange = onSizeChange,
-                                                        valueRange = 128f..512f,
-                                                        steps = 5,
-                                                        modifier = Modifier.fillMaxWidth()
-                                                    )
-                                                }
-                                            }
-                                            if (model?.runOnCpu ?: false) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(
-                                                        8.dp
-                                                    )
-                                                ) {
-                                                    Text(
-                                                        "Runtime",
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                    FilterChip(
-                                                        selected = !useOpenCL,
-                                                        onClick = {
-                                                            useOpenCL = false
-                                                            saveAllFields()
-                                                        },
-                                                        label = { Text("CPU") },
-                                                        modifier = Modifier.weight(
-                                                            1f
-                                                        )
-                                                    )
-                                                    FilterChip(
-                                                        selected = useOpenCL,
-                                                        onClick = {
-                                                            if (!useOpenCL) {
-                                                                showOpenCLWarningDialog =
-                                                                    true
-                                                            } else {
-                                                                useOpenCL = false
-                                                                saveAllFields()
-                                                            }
-                                                        },
-                                                        label = { Text("GPU") },
-                                                        modifier = Modifier.weight(
-                                                            1f
-                                                        )
-                                                    )
-                                                }
-                                            }
-                                            Column {
-                                                Text(
-                                                    stringResource(
-                                                        R.string.batch_count,
-                                                        batchCounts
-                                                    ),
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                                Slider(
-                                                    value = batchCounts.toFloat(),
-                                                    onValueChange = onBatchCountsChange,
-                                                    valueRange = 1f..100f,
-                                                    steps = 98,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-                                            if (useImg2img) {
-                                                Column {
-                                                    Text(
-                                                        "[img2img]Denoise Strength: %.2f".format(
-                                                            denoiseStrength
-                                                        ),
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                    Slider(
-                                                        value = denoiseStrength,
-                                                        onValueChange = onDenoiseStrengthChange,
-                                                        valueRange = 0f..1f,
-                                                        steps = 99,
-                                                        modifier = Modifier.fillMaxWidth()
-                                                    )
-                                                }
-                                            }
-                                            Column(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalArrangement = Arrangement.spacedBy(
-                                                    8.dp
-                                                )
-                                            ) {
-                                                OutlinedTextField(
-                                                    value = seed,
-                                                    onValueChange = onSeedChange,
-                                                    label = { Text(stringResource(R.string.random_seed)) },
-                                                    keyboardOptions = KeyboardOptions(
-                                                        keyboardType = KeyboardType.Number
-                                                    ),
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    shape = MaterialTheme.shapes.medium,
-                                                    trailingIcon = {
-                                                        if (seed.isNotEmpty()) {
-                                                            IconButton(onClick = {
-                                                                seed = ""
-                                                                saveAllFields()
-                                                            }) {
-                                                                Icon(
-                                                                    Icons.Default.Clear,
-                                                                    contentDescription = "clear"
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                )
-
-                                                if (returnedSeed != null) {
-                                                    FilledTonalButton(
-                                                        onClick = {
-                                                            seed =
-                                                                returnedSeed.toString()
-                                                            saveAllFields()
-                                                        },
-                                                        modifier = Modifier.fillMaxWidth()
-                                                    ) {
-                                                        Icon(
-                                                            Icons.Default.Refresh,
-                                                            contentDescription = stringResource(
-                                                                R.string.use_last_seed
-                                                            ),
-                                                            modifier = Modifier
-                                                                .size(
-                                                                    20.dp
-                                                                )
-                                                                .padding(end = 4.dp)
-                                                        )
-                                                        Text(
-                                                            stringResource(
-                                                                R.string.use_last_seed,
-                                                                returnedSeed.toString()
-                                                            )
-                                                        )
-                                                    }
-                                                }
-                                            }
+                                    onCustomAspectRatioClick = {
+                                        if (!isRunning) {
+                                            showCustomAspectRatioDialog = true
                                         }
                                     },
-                                    confirmButton = {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
+                                    onResolutionSelected = { resolution ->
+                                        if (!isRunning &&
+                                            (
+                                                resolution.width != currentWidth ||
+                                                    resolution.height != currentHeight
+                                                )
                                         ) {
-                                            TextButton(
-                                                onClick = {
-                                                    showResetConfirmDialog = true
-                                                },
-                                                colors = ButtonDefaults.textButtonColors(
-                                                    contentColor = MaterialTheme.colorScheme.error
-                                                )
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Refresh,
-                                                    contentDescription = stringResource(
-                                                        R.string.reset
-                                                    ),
-                                                    modifier = Modifier
-                                                        .size(20.dp)
-                                                        .padding(end = 4.dp)
-                                                )
-                                                Text(stringResource(R.string.reset))
-                                            }
-
-                                            TextButton(onClick = {
-                                                showAdvancedSettings = false
-                                            }) {
-                                                Text(stringResource(R.string.confirm))
-                                            }
+                                            pendingResolution = resolution
+                                            showResolutionChangeDialog = true
                                         }
-                                    }
+                                    },
+                                    onSchedulerChange = { value ->
+                                        scheduler = value
+                                        saveAllFields()
+                                    },
+                                    onStepsChange = onStepsChange,
+                                    onCfgChange = onCfgChange,
+                                    onSizeChange = onSizeChange,
+                                    onCpuSelected = {
+                                        useOpenCL = false
+                                        saveAllFields()
+                                    },
+                                    onGpuSelected = { showOpenCLWarningDialog = true },
+                                    onBatchCountsChange = onBatchCountsChange,
+                                    onDenoiseStrengthChange = onDenoiseStrengthChange,
+                                    onSeedChange = onSeedChange,
+                                    onUseLastSeed = {
+                                        seed = returnedSeed.toString()
+                                        saveAllFields()
+                                    },
+                                    onImportFromClipboard = {
+                                        val clipboard =
+                                            context.getSystemService(
+                                                Context.CLIPBOARD_SERVICE,
+                                            ) as? ClipboardManager
+                                        val raw = clipboard?.primaryClip
+                                            ?.takeIf { it.itemCount > 0 }
+                                            ?.getItemAt(0)
+                                            ?.coerceToText(context)
+                                            ?.toString()
+                                        val imported = ParamShare.tryDecode(raw)
+                                        if (imported != null) {
+                                            pendingImport = imported
+                                            clipboardImportChecked = true
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                msgImportNoParams,
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    },
+                                    onShare = {
+                                        val currentMode = when {
+                                            isInpaintMode -> GenerationMode.INPAINT
+                                            selectedImageUri != null -> GenerationMode.IMG2IMG
+                                            else -> GenerationMode.TXT2IMG
+                                        }
+                                        shareSourceParams = GenerationParameters(
+                                            steps = steps.toInt(),
+                                            cfg = cfg,
+                                            seed = seed.toLongOrNull(),
+                                            prompt = promptField.text,
+                                            negativePrompt = negativePromptField.text,
+                                            generationTime = null,
+                                            width = currentWidth,
+                                            height = currentHeight,
+                                            runOnCpu = model?.runOnCpu ?: false,
+                                            denoiseStrength = denoiseStrength,
+                                            useOpenCL = useOpenCL,
+                                            scheduler = scheduler,
+                                            mode = currentMode,
+                                        )
+                                        shareSourceModelId = modelId
+                                    },
+                                    onReset = { showResetConfirmDialog = true },
+                                    onDismiss = { showAdvancedSettings = false },
                                 )
                             }
                         }
 
-                        PromptTagTextField(
-                            value = promptFieldValue,
-                            onValueChange = ::updatePromptField,
+                        ControlledPromptTagTextField(
+                            controller = promptField,
+                            autocompleteAvailable = tagAutocompleteAvailable,
                             modifier = Modifier.fillMaxWidth(),
                             label = {
                                 PromptCountLabel(
                                     label = stringResource(R.string.image_prompt),
-                                    count = promptTokenCount,
-                                    max = promptTokenMax
+                                    count = promptField.tokenCount,
+                                    max = promptField.tokenMax,
+                                    showCount = promptField.text.isNotEmpty(),
                                 )
                             },
-                            suggestions = promptSuggestions,
-                            onSuggestionClick = ::applyPromptSuggestion,
-                            showSuggestions = tagAutocompleteAvailable && isPromptFocused,
-                            highlightQuery = promptActiveQuery,
-                            onFocusChanged = {
-                                isPromptFocused = it
-                                if (!it) promptSuggestions = emptyList()
-                            }
                         )
 
-                        PromptTagTextField(
-                            value = negativePromptFieldValue,
-                            onValueChange = ::updateNegativePromptField,
+                        ControlledPromptTagTextField(
+                            controller = negativePromptField,
+                            autocompleteAvailable = tagAutocompleteAvailable,
                             modifier = Modifier.fillMaxWidth(),
                             label = {
                                 PromptCountLabel(
                                     label = stringResource(R.string.negative_prompt),
-                                    count = negativePromptTokenCount,
-                                    max = negativePromptTokenMax
+                                    count = negativePromptField.tokenCount,
+                                    max = negativePromptField.tokenMax,
+                                    showCount = negativePromptField.text.isNotEmpty(),
                                 )
                             },
-                            suggestions = negativePromptSuggestions,
-                            onSuggestionClick = ::applyNegativePromptSuggestion,
-                            showSuggestions = tagAutocompleteAvailable && isNegativePromptFocused,
-                            highlightQuery = negativePromptActiveQuery,
-                            onFocusChanged = {
-                                isNegativePromptFocused = it
-                                if (!it) negativePromptSuggestions = emptyList()
-                            }
                         )
 
                         Button(
                             onClick = {
                                 focusManager.clearFocus()
+                                pendingUltrafix = false
                                 Log.d(
                                     "ModelRunScreen",
-                                    "start generation"
+                                    "start generation",
                                 )
-
-                                dynamicprompt = prompt
-                                while (dynamicprompt.indexOf("{") > -1) {
-                                    val startindex = dynamicprompt.indexOf("{") + 1
-                                    val endindex = dynamicprompt.indexOf("}", startindex)
-                                    if (endindex == -1) break
-                                    val tmpprompt = dynamicprompt.substring(startindex, endindex)
-                                    val tpSplitList = tmpprompt.split("|")
-                                    val range = (0..tpSplitList.size - 1)
-                                    val selectnum = range.random()
-                                    dynamicprompt = dynamicprompt.replace("{" + tmpprompt + "}",tpSplitList[selectnum])
-                                }
-
                                 generationParamsTmp = GenerationParameters(
                                     steps = steps.roundToInt(),
                                     cfg = cfg,
                                     seed = 0,
-                                    prompt = dynamicprompt,
-                                    negativePrompt = negativePrompt,
+                                    prompt = promptField.text,
+                                    negativePrompt = negativePromptField.text,
                                     generationTime = "",
                                     width = currentWidth,
                                     height = currentHeight,
                                     runOnCpu = model?.runOnCpu ?: false,
                                     denoiseStrength = denoiseStrength,
                                     useOpenCL = useOpenCL,
-                                    scheduler = scheduler
+                                    scheduler = scheduler,
                                 )
 
                                 Log.d(
                                     "ModelRunScreen",
-                                    "start generation batch: $batchCounts times"
+                                    "start generation batch: $batchCounts times",
                                 )
 
                                 // If seed is set, only generate once regardless of batch count
@@ -2365,45 +1785,34 @@ fun ModelRunScreen(
                                         currentBatchIndex = i + 1
                                         Log.d(
                                             "ModelRunScreen",
-                                            "preparing batch $i"
+                                            "preparing batch $i",
                                         )
 
-                                        dynamicprompt = prompt
-                                        while (dynamicprompt.indexOf("{") > -1) {
-                                            val startindex = dynamicprompt.indexOf("{") + 1
-                                            val endindex = dynamicprompt.indexOf("}", startindex)
-                                            if (endindex == -1) break
-                                            val tmpprompt = dynamicprompt.substring(startindex, endindex)
-                                            val tpSplitList = tmpprompt.split("|")
-                                            val range = (0..tpSplitList.size - 1)
-                                            val selectnum = range.random()
-                                            dynamicprompt = dynamicprompt.replace("{" + tmpprompt + "}",tpSplitList[selectnum])
-                                        }
                                         // Update generationParamsTmp to reflect current parameters
                                         // This allows parameters to be changed during batch execution
                                         generationParamsTmp = GenerationParameters(
                                             steps = steps.roundToInt(),
                                             cfg = cfg,
                                             seed = 0,
-                                            prompt = dynamicprompt,
-                                            negativePrompt = negativePrompt,
+                                            prompt = promptField.text,
+                                            negativePrompt = negativePromptField.text,
                                             generationTime = "",
                                             width = currentWidth,
                                             height = currentHeight,
                                             runOnCpu = model?.runOnCpu ?: false,
                                             denoiseStrength = denoiseStrength,
                                             useOpenCL = useOpenCL,
-                                            scheduler = scheduler
+                                            scheduler = scheduler,
                                         )
 
                                         val batchIntent = Intent(
                                             context,
-                                            BackgroundGenerationService::class.java
+                                            BackgroundGenerationService::class.java,
                                         ).apply {
-                                            putExtra("prompt", dynamicprompt)
+                                            putExtra("prompt", promptField.text)
                                             putExtra(
                                                 "negative_prompt",
-                                                negativePrompt
+                                                negativePromptField.text,
                                             )
                                             putExtra("steps", steps.roundToInt())
                                             putExtra("cfg", cfg)
@@ -2419,7 +1828,7 @@ fun ModelRunScreen(
                                             putExtra("effective_height", effectiveHeight)
                                             putExtra(
                                                 "denoise_strength",
-                                                denoiseStrength
+                                                denoiseStrength,
                                             )
                                             putExtra("use_opencl", useOpenCL)
                                             putExtra("scheduler", scheduler)
@@ -2435,84 +1844,86 @@ fun ModelRunScreen(
 
                                         Log.d(
                                             "ModelRunScreen",
-                                            "start service - batch $i"
+                                            "start service - batch $i",
                                         )
 
                                         context.startForegroundService(batchIntent)
                                         Log.d(
                                             "ModelRunScreen",
-                                            "start service sent - batch $i"
+                                            "start service sent - batch $i",
                                         )
 
                                         BackgroundGenerationService.generationState
                                             .first { state ->
                                                 state is GenerationState.Complete ||
-                                                        state is GenerationState.Error
+                                                    state is GenerationState.Error
                                             }
 
                                         Log.d(
                                             "ModelRunScreen",
-                                            "batch $i completed, waiting for service to stop"
+                                            "batch $i completed, waiting for service to stop",
                                         )
 
                                         // Wait for service to actually stop
                                         val waitStartTime =
                                             System.currentTimeMillis()
-                                        val timeoutMs = 5000L
-                                        while (BackgroundGenerationService.isServiceRunning.value) {
-                                            if (System.currentTimeMillis() - waitStartTime > timeoutMs) {
-                                                Log.w(
-                                                    "ModelRunScreen",
-                                                    "Timeout waiting for service to stop"
-                                                )
-                                                break
-                                            }
-                                            delay(100)
+                                        val stopped = withTimeoutOrNull(5000L) {
+                                            BackgroundGenerationService.isServiceRunning
+                                                .first { !it }
+                                        }
+                                        if (stopped == null) {
+                                            Log.w(
+                                                "ModelRunScreen",
+                                                "Timeout waiting for service to stop",
+                                            )
                                         }
 
                                         Log.d(
                                             "ModelRunScreen",
-                                            "service stopped, wait time: ${System.currentTimeMillis() - waitStartTime}ms"
+                                            "service stopped, wait time: ${System.currentTimeMillis() - waitStartTime}ms",
                                         )
 
                                         BackgroundGenerationService.resetState()
                                         Log.d(
                                             "ModelRunScreen",
-                                            "service state reset, ready for next batch"
+                                            "service state reset, ready for next batch",
                                         )
                                     }
                                     currentBatchIndex = 0
                                     isRunning = false
                                     Log.d(
                                         "ModelRunScreen",
-                                        "all batches completed, isRunning set to false"
+                                        "all batches completed, isRunning set to false",
                                     )
                                 }
                             },
-                            enabled = serviceState !is GenerationState.Progress && !isRunning && !isUpscaling,
+                            enabled = serviceState !is GenerationState.Progress &&
+                                !isRunning && !isUpscaling && !isUltrafixPreparing,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium
+                            shape = MaterialTheme.shapes.medium,
                         ) {
                             AnimatedContent(
                                 targetState = serviceState is GenerationState.Progress || isUpscaling,
                                 transitionSpec = {
-                                    (fadeIn(animationSpec = tween(200)) + scaleIn(
-                                        initialScale = 0.8f,
-                                        animationSpec = tween(200)
-                                    ))
+                                    (
+                                        fadeIn(animationSpec = tween(Motion.DurationShort)) + scaleIn(
+                                            initialScale = 0.8f,
+                                            animationSpec = tween(Motion.DurationShort),
+                                        )
+                                        )
                                         .togetherWith(
-                                            fadeOut(animationSpec = tween(200)) + scaleOut(
+                                            fadeOut(animationSpec = tween(Motion.DurationShort)) + scaleOut(
                                                 targetScale = 0.8f,
-                                                animationSpec = tween(200)
-                                            )
+                                                animationSpec = tween(Motion.DurationShort),
+                                            ),
                                         )
                                 },
-                                label = "GenerateButtonContent"
+                                label = "GenerateButtonContent",
                             ) { isLoading ->
                                 if (isLoading) {
-                                    CircularProgressIndicator(
+                                    LoadingIndicator(
                                         modifier = Modifier.size(24.dp),
-                                        color = MaterialTheme.colorScheme.onPrimary
+                                        color = MaterialTheme.colorScheme.onPrimary,
                                     )
                                 } else {
                                     Text(stringResource(R.string.generate_image))
@@ -2525,31 +1936,30 @@ fun ModelRunScreen(
             AnimatedVisibility(
                 visible = errorMessage != null,
                 enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+                exit = shrinkVertically() + fadeOut(),
             ) {
                 errorMessage?.let { msg ->
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { errorMessage = null },
+                        onClick = { errorMessage = null },
+                        modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        )
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                        ),
                     ) {
                         Row(
                             modifier = Modifier.padding(16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
                                 Icons.Default.Error,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
+                                tint = MaterialTheme.colorScheme.error,
                             )
                             Text(
                                 msg,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.bodyMedium,
                             )
                         }
                     }
@@ -2558,41 +1968,38 @@ fun ModelRunScreen(
             AnimatedVisibility(
                 visible = isRunning,
                 enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+                exit = shrinkVertically() + fadeOut(),
             ) {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large
+                    shape = MaterialTheme.shapes.large,
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = if (currentBatchIndex > 0) "${
+                            text = if (currentBatchIndex > 0) {
+                                "${
+                                    stringResource(
+                                        R.string.generating,
+                                    )
+                                } ($currentBatchIndex/$batchCounts)…"
+                            } else {
                                 stringResource(
-                                    R.string.generating
+                                    R.string.generating,
                                 )
-                            } ($currentBatchIndex/$batchCounts)…" else stringResource(
-                                R.string.generating
-                            ),
-                            style = MaterialTheme.typography.titleMedium
+                            },
+                            style = MaterialTheme.typography.titleMedium,
                         )
-                        val animatedProgress by animateFloatAsState(
-                            targetValue = progress,
-                            animationSpec = tween(durationMillis = 300),
-                            label = "ProgressAnimation"
-                        )
-                        LinearProgressIndicator(
-                            progress = { animatedProgress },
+                        SmoothLinearWavyProgressIndicator(
+                            progress = progress,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Text(
                             "${(progress * 100).toInt()}%",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = 0.7f
-                            )
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         intermediateBitmap?.let { bitmap ->
                             Spacer(modifier = Modifier.height(8.dp))
@@ -2600,13 +2007,13 @@ fun ModelRunScreen(
                                 shape = MaterialTheme.shapes.small,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .aspectRatio(1f)
+                                    .aspectRatio(1f),
                             ) {
                                 Image(
                                     bitmap = bitmap.asImageBitmap(),
                                     contentDescription = "Generation Preview",
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                                    contentScale = ContentScale.Fit,
                                 )
                             }
                         }
@@ -2617,17 +2024,17 @@ fun ModelRunScreen(
             AnimatedVisibility(
                 visible = selectedImageUri != null && base64EncodeDone,
                 enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+                exit = shrinkVertically() + fadeOut(),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp)
+                        .padding(vertical = 8.dp),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Start
+                        horizontalArrangement = Arrangement.Start,
                     ) {
                         Card(
                             modifier = Modifier
@@ -2638,24 +2045,24 @@ fun ModelRunScreen(
                                 croppedBitmap?.let { bitmap ->
                                     AsyncImage(
                                         model = ImageRequest.Builder(
-                                            LocalContext.current
+                                            LocalContext.current,
                                         )
                                             .data(bitmap)
                                             .crossfade(true)
                                             .build(),
                                         contentDescription = "Cropped Image",
-                                        modifier = Modifier.fillMaxSize()
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 } ?: selectedImageUri?.let { uri ->
                                     AsyncImage(
                                         model = ImageRequest.Builder(
-                                            LocalContext.current
+                                            LocalContext.current,
                                         )
                                             .data(uri)
                                             .crossfade(true)
                                             .build(),
                                         contentDescription = "Selected Image",
-                                        modifier = Modifier.fillMaxSize()
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 }
                                 IconButton(
@@ -2672,16 +2079,16 @@ fun ModelRunScreen(
                                         .size(24.dp)
                                         .background(
                                             color = MaterialTheme.colorScheme.surface.copy(
-                                                alpha = 0.7f
+                                                alpha = 0.7f,
                                             ),
-                                            shape = CircleShape
+                                            shape = CircleShape,
                                         )
-                                        .align(Alignment.TopEnd)
+                                        .align(Alignment.TopEnd),
                                 ) {
                                     Icon(
                                         Icons.Default.Clear,
                                         contentDescription = "Remove Image",
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(16.dp),
                                     )
                                 }
                             }
@@ -2690,24 +2097,22 @@ fun ModelRunScreen(
                         AnimatedVisibility(
                             visible = croppedBitmap != null && !isInpaintMode,
                             enter = fadeIn() + expandHorizontally(),
-                            exit = fadeOut() + shrinkHorizontally()
+                            exit = fadeOut() + shrinkHorizontally(),
                         ) {
                             Row {
                                 Spacer(modifier = Modifier.width(12.dp))
-                                FilledTonalIconButton(
+                                SmallFloatingActionButton(
                                     onClick = {
                                         if (croppedBitmap != null) {
                                             showInpaintScreen = true
                                         } else {
                                             Toast.makeText(
                                                 context,
-                                                "Please Crop First",
-                                                Toast.LENGTH_SHORT
+                                                msgPleaseCropFirst,
+                                                Toast.LENGTH_SHORT,
                                             ).show()
                                         }
                                     },
-                                    shape = CircleShape,
-                                    modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Brush,
@@ -2720,31 +2125,30 @@ fun ModelRunScreen(
                         AnimatedVisibility(
                             visible = isInpaintMode && maskBitmap != null,
                             enter = fadeIn() + expandHorizontally(),
-                            exit = fadeOut() + shrinkHorizontally()
+                            exit = fadeOut() + shrinkHorizontally(),
                         ) {
                             Row {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Card(
-                                    modifier = Modifier
-                                        .size(100.dp)
-                                        .clickable {
-                                            if (croppedBitmap != null && maskBitmap != null) {
-                                                showInpaintScreen = true
-                                            }
-                                        },
+                                    onClick = {
+                                        if (croppedBitmap != null && maskBitmap != null) {
+                                            showInpaintScreen = true
+                                        }
+                                    },
+                                    modifier = Modifier.size(100.dp),
                                     shape = MaterialTheme.shapes.small,
                                 ) {
                                     Box {
                                         maskBitmap?.let { mb ->
                                             AsyncImage(
                                                 model = ImageRequest.Builder(
-                                                    LocalContext.current
+                                                    LocalContext.current,
                                                 )
                                                     .data(mb)
                                                     .crossfade(true)
                                                     .build(),
                                                 contentDescription = "Mask Image",
-                                                modifier = Modifier.fillMaxSize()
+                                                modifier = Modifier.fillMaxSize(),
                                             )
                                         }
                                         IconButton(
@@ -2757,725 +2161,19 @@ fun ModelRunScreen(
                                                 .size(24.dp)
                                                 .background(
                                                     color = MaterialTheme.colorScheme.surface.copy(
-                                                        alpha = 0.7f
+                                                        alpha = 0.7f,
                                                     ),
-                                                    shape = CircleShape
+                                                    shape = CircleShape,
                                                 )
-                                                .align(Alignment.TopEnd)
+                                                .align(Alignment.TopEnd),
                                         ) {
                                             Icon(
                                                 Icons.Default.Clear,
                                                 contentDescription = "Clear Mask",
-                                                modifier = Modifier.size(16.dp)
+                                                modifier = Modifier.size(16.dp),
                                             )
                                         }
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun ResultPage() {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Crossfade(
-                targetState = currentBitmap != null,
-                label = "result_crossfade"
-            ) { hasResult ->
-                if (!hasResult) {
-                    ElevatedCard(
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            val iconScale = remember { Animatable(1f) }
-                            LaunchedEffect(Unit) {
-                                iconScale.animateTo(
-                                    targetValue = 1.1f,
-                                    animationSpec = infiniteRepeatable(
-                                        animation = tween(1500),
-                                        repeatMode = RepeatMode.Reverse
-                                    )
-                                )
-                            }
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .graphicsLayer(
-                                        scaleX = iconScale.value,
-                                        scaleY = iconScale.value
-                                    ),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                stringResource(R.string.no_results),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                stringResource(R.string.no_results_hint),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Button(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        pagerState.animateScrollToPage(0)
-                                    }
-                                },
-                                modifier = Modifier.padding(top = 8.dp)
-                            ) {
-                                Text(stringResource(R.string.go_to_generate))
-                            }
-                        }
-                    }
-                } else {
-                    ElevatedCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.large
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    stringResource(R.string.result_tab),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                currentBitmap?.let { bitmap ->
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(
-                                            8.dp
-                                        )
-                                    ) {
-                                        if (BuildConfig.FLAVOR == "filter") {
-                                            FilledTonalIconButton(
-                                                onClick = {
-                                                    showReportDialog = true
-                                                }
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Report,
-                                                    contentDescription = "report inappropriate content"
-                                                )
-                                            }
-                                        }
-
-                                        // Upscaler button - only show for NPU runtime and resolution <= 1024
-                                        if (!model?.runOnCpu!! && generationParams?.let {
-                                                maxOf(
-                                                    it.width,
-                                                    it.height
-                                                ) <= 1024
-                                            } == true
-                                        ) {
-                                            FilledTonalIconButton(
-                                                onClick = {
-                                                    showUpscalerDialog = true
-                                                },
-                                                enabled = !isRunning && !isUpscaling
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.AutoFixHigh,
-                                                    contentDescription = "upscale image"
-                                                )
-                                            }
-                                        }
-
-                                        FilledTonalIconButton(
-                                            onClick = {
-                                                handleSaveImage(
-                                                    context = context,
-                                                    bitmap = bitmap,
-                                                    onSuccess = {
-                                                        Toast.makeText(
-                                                            context,
-                                                            context.getString(R.string.image_saved),
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
-                                                    },
-                                                    onError = { error ->
-                                                        Toast.makeText(
-                                                            context,
-                                                            error,
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
-                                                    }
-                                                )
-                                            }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Save,
-                                                contentDescription = "save image"
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            AnimatedContent(
-                                targetState = imageVersion,
-                                transitionSpec = {
-                                    fadeIn(animationSpec = tween(400)) togetherWith
-                                            fadeOut(animationSpec = tween(400))
-                                },
-                                label = "ImagePreviewCrossfade"
-                            ) { version ->
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(1f)
-                                        .clickable {
-                                            if (currentBitmap != null) {
-                                                isPreviewMode = true
-                                            }
-                                        },
-                                    shape = MaterialTheme.shapes.medium,
-                                    shadowElevation = 4.dp
-                                ) {
-                                    currentBitmap?.let { bitmap ->
-                                        AsyncImage(
-                                            model = ImageRequest.Builder(
-                                                LocalContext.current
-                                            )
-                                                .data(bitmap)
-                                                .size(coil.size.Size.ORIGINAL)
-                                                .crossfade(true)
-                                                .build(),
-                                            contentDescription = "generated image",
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
-                                }
-                            }
-
-                            if (historyItems.size > 1) {
-                                LazyRow(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(
-                                        8.dp
-                                    )
-                                ) {
-                                    items(historyItems.take(20).size) { idx ->
-                                        val item = historyItems[idx]
-                                        Card(
-                                            modifier = Modifier
-                                                .size(72.dp)
-                                                .clickable {
-                                                    // Load bitmap from file
-                                                    val bitmap =
-                                                        BitmapFactory.decodeFile(
-                                                            item.imageFile.absolutePath
-                                                        )
-                                                    if (bitmap != null) {
-                                                        currentBitmap = bitmap
-                                                        generationParams = item.params
-                                                        generationParamsModelId = item.modelId
-                                                        currentDisplayedHistoryId = item.id
-                                                        imageVersion++
-                                                    }
-                                                },
-                                            shape = MaterialTheme.shapes.small
-                                        ) {
-                                            AsyncImage(
-                                                model = ImageRequest.Builder(
-                                                    LocalContext.current
-                                                )
-                                                    .data(item.imageFile)
-                                                    .size(72)
-                                                    .build(),
-                                                contentDescription = "thumb",
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { showParametersDialog = true },
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            stringResource(R.string.generation_params),
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Icon(
-                                            Icons.Default.Info,
-                                            contentDescription = "view details",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-
-                                    generationParams?.let { params ->
-                                        Text(
-                                            stringResource(
-                                                R.string.result_params,
-                                                params.steps,
-                                                params.cfg,
-                                                params.seed.toString()
-                                            ),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                alpha = 0.8f
-                                            )
-                                        )
-                                        Text(
-                                            stringResource(
-                                                R.string.result_params_2,
-                                                params.width,
-                                                params.height,
-                                                params.generationTime
-                                                    ?: "unknown",
-                                                if (params.runOnCpu) {
-                                                    if (params.useOpenCL) "GPU" else "CPU"
-                                                } else "NPU"
-                                            ),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                alpha = 0.8f
-                                            )
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if (showReportDialog && currentBitmap != null && generationParams != null) {
-                AlertDialog(
-                    onDismissRequest = { showReportDialog = false },
-                    title = { Text("Report") },
-                    text = {
-                        Column {
-//                                                Text("Report this image?")
-                            Text(
-                                "Report this image if you feel it is inappropriate. Params and image will be sent to the server for review.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                showReportDialog = false
-                                coroutineScope.launch {
-                                    currentBitmap?.let { bitmap ->
-                                        reportImage(
-                                            context = context,
-                                            bitmap = bitmap,
-                                            modelName = model?.name ?: "",
-                                            params = generationParams!!,
-                                            onSuccess = {
-                                                Toast.makeText(
-                                                    context,
-                                                    "Thanks for your report.",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            },
-                                            onError = { error ->
-                                                Toast.makeText(
-                                                    context,
-                                                    "Error: $error",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        )
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
-                            )
-                        ) {
-                            Text("Report")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showReportDialog = false }) {
-                            Text("Cancel")
-                        }
-                    }
-                )
-            }
-            if (showParametersDialog && generationParams != null) {
-                GenerationParamsDialog(
-                    title = stringResource(R.string.params_detail),
-                    params = generationParams!!,
-                    modelId = generationParamsModelId,
-                    showImg2imgButton = useImg2img,
-                    onShare = {
-                        shareSourceParams = generationParams
-                        shareSourceModelId = generationParamsModelId
-                    },
-                    onSendToImg2img = {
-                        val bmp = currentBitmap
-                        if (bmp != null) {
-                            sendBitmapToImg2img(bmp)
-                            showParametersDialog = false
-                        } else {
-                            Toast.makeText(
-                                context,
-                                "No image available",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-                    },
-                    onReproduce = {
-                        generationParams?.let {
-                            pendingReproduceParams = it
-                            showParametersDialog = false
-                            showReproduceParamsDialog = true
-                        }
-                    },
-                    onDismiss = { showParametersDialog = false },
-                )
-            }
-        }
-    }
-
-    @Composable
-    fun HistoryPage() {
-        // History page
-        // Handle back button in selection mode
-        BackHandler(enabled = isSelectionMode && !isBatchSaving) {
-            isSelectionMode = false
-            selectedItems.clear()
-        }
-
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            HistoryFilterBar(
-                filter = historyFilter,
-                currentModelId = modelId,
-                onShowFilterSheet = { showHistoryFilterSheet = true },
-                onSetCurrentModelOnly = {
-                    historyFilter = historyFilter.copy(modelIds = setOf(modelId))
-                },
-                onSetAllModels = {
-                    historyFilter = historyFilter.copy(modelIds = null)
-                },
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-            ) {
-                if (historyItems.isEmpty()) {
-                    var emptyVisible by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) { emptyVisible = true }
-                    val emptyAlpha by animateFloatAsState(
-                        targetValue = if (emptyVisible) 1f else 0f,
-                        animationSpec = tween(500),
-                        label = "emptyAlpha",
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .alpha(emptyAlpha),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.offset(y = (-60).dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                stringResource(R.string.no_history),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                stringResource(R.string.no_history_hint),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                } else {
-                    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(
-                            2
-                        ),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            16.dp
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(historyItems.size) { index ->
-                            val item = historyItems[index]
-                            val isSelected = selectedItems.contains(item)
-                            Card(
-                                modifier = Modifier
-                                    .aspectRatio(1f)
-                                    .combinedClickable(
-                                        onClick = {
-                                            if (isSelectionMode) {
-                                                // Toggle selection
-                                                if (isSelected) {
-                                                    selectedItems.remove(item)
-                                                    if (selectedItems.isEmpty()) {
-                                                        isSelectionMode = false
-                                                    }
-                                                } else {
-                                                    selectedItems.add(item)
-                                                }
-                                            } else {
-                                                // Normal preview
-                                                selectedHistoryItem = item
-                                                showHistoryDetailDialog = true
-                                            }
-                                        },
-                                        onLongClick = {
-                                            if (!isSelectionMode) {
-                                                isSelectionMode = true
-                                                selectedItems.clear()
-                                                selectedItems.add(item)
-                                            }
-                                        }
-                                    ),
-                                shape = MaterialTheme.shapes.medium,
-                                elevation = CardDefaults.cardElevation(
-                                    defaultElevation = 2.dp
-                                )
-                            ) {
-                                Box {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(LocalContext.current)
-                                            .data(item.imageFile)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = "Generated image",
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-
-                                    if (isSelected) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(
-                                                    MaterialTheme.colorScheme.primary.copy(
-                                                        alpha = 0.2f
-                                                    )
-                                                )
-                                        )
-                                    }
-
-                                    // Timestamp overlay
-                                    Surface(
-                                        modifier = Modifier.align(Alignment.BottomStart),
-                                        shape = RoundedCornerShape(
-                                            topStart = 0.dp,
-                                            topEnd = 4.dp,
-                                            bottomStart = 12.dp,
-                                            bottomEnd = 0.dp
-                                        ),
-                                        color = MaterialTheme.colorScheme.surface.copy(
-                                            alpha = 0.8f
-                                        )
-                                    ) {
-                                        Text(
-                                            text = java.text.SimpleDateFormat(
-                                                "MM/dd HH:mm",
-                                                java.util.Locale.getDefault()
-                                            )
-                                                .format(java.util.Date(item.timestamp)),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            modifier = Modifier.padding(
-                                                horizontal = 6.dp,
-                                                vertical = 3.dp
-                                            )
-                                        )
-                                    }
-
-                                    // Selection indicator
-                                    if (isSelectionMode) {
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .padding(8.dp)
-                                                .size(24.dp)
-                                                .background(
-                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(
-                                                        alpha = 0.3f
-                                                    ),
-                                                    shape = CircleShape
-                                                )
-                                                .border(
-                                                    width = 2.dp,
-                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
-                                                    shape = CircleShape
-                                                ),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (isSelected) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Check,
-                                                    contentDescription = "Selected",
-                                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Floating selection mode bottom bar
-                if (isSelectionMode) {
-                    ElevatedCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(16.dp),
-                        shape = MaterialTheme.shapes.extraLarge,
-                        elevation = CardDefaults.elevatedCardElevation(
-                            defaultElevation = 6.dp
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    isSelectionMode = false
-                                    selectedItems.clear()
-                                },
-                                enabled = !isBatchSaving
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Exit selection mode"
-                                )
-                            }
-
-                            Text(
-                                text = stringResource(
-                                    R.string.selected_items_count,
-                                    selectedItems.size
-                                ),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-
-                            Row {
-                                // Select all / Deselect all button
-                                val visibleCount = historyItems.size
-                                val visibleItems = historyItems
-                                val isAllSelected =
-                                    selectedItems.size == visibleCount && visibleItems.all { it in selectedItems }
-                                IconButton(
-                                    modifier = Modifier.size(40.dp),
-                                    onClick = {
-                                        if (isAllSelected) {
-                                            selectedItems.clear()
-                                            isSelectionMode = false
-                                        } else {
-                                            selectedItems.clear()
-                                            selectedItems.addAll(visibleItems)
-                                        }
-                                    },
-                                    enabled = !isBatchSaving
-                                ) {
-                                    Icon(
-                                        imageVector = if (isAllSelected)
-                                            Icons.Default.CheckCircle
-                                        else
-                                            Icons.Default.CheckCircleOutline,
-                                        contentDescription = if (isAllSelected) "Deselect all" else "Select all",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                // Save button
-                                IconButton(
-                                    modifier = Modifier.size(40.dp),
-                                    onClick = { showBatchSaveDialog = true },
-                                    enabled = selectedItems.isNotEmpty() && !isBatchSaving
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Save,
-                                        contentDescription = "Save selected",
-                                        tint = if (selectedItems.isNotEmpty() && !isBatchSaving)
-                                            MaterialTheme.colorScheme.primary
-                                        else
-                                            MaterialTheme.colorScheme.onSurface.copy(
-                                                alpha = 0.38f
-                                            )
-                                    )
-                                }
-
-                                // Delete button
-                                IconButton(
-                                    modifier = Modifier.size(40.dp),
-                                    onClick = { showBatchDeleteDialog = true },
-                                    enabled = selectedItems.isNotEmpty() && !isBatchSaving
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete selected",
-                                        tint = if (selectedItems.isNotEmpty() && !isBatchSaving)
-                                            MaterialTheme.colorScheme.error
-                                        else
-                                            MaterialTheme.colorScheme.onSurface.copy(
-                                                alpha = 0.38f
-                                            )
-                                    )
                                 }
                             }
                         }
@@ -3490,10 +2188,10 @@ fun ModelRunScreen(
             .fillMaxSize()
             .clickable(
                 interactionSource = interactionSource,
-                indication = null
+                indication = null,
             ) {
                 focusManager.clearFocus()
-            }
+            },
     ) {
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -3503,11 +2201,20 @@ fun ModelRunScreen(
                         // Hide title when collapsed
                         if (scrollBehavior.state.collapsedFraction < 0.5f) {
                             Column {
-                                Text(model?.name ?: "Running Model")
                                 Text(
-                                    model?.description ?: "",
+                                    text = model?.name ?: "Running Model",
+                                    fontWeight = FontWeight.Normal,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                )
+                                Text(
+                                    text = model?.description ?: "",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
                                 )
                             }
                         }
@@ -3515,88 +2222,210 @@ fun ModelRunScreen(
                     navigationIcon = {
                         IconButton(onClick = {
                             if (isRunning) {
-                                showExitDialog = true
+                                showInterruptDialog = true
                             } else {
                                 handleExit()
                             }
                         }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = stringResource(R.string.back)
+                                contentDescription = stringResource(R.string.back),
                             )
                         }
                     },
-                    colors = TopAppBarDefaults.largeTopAppBarColors(
+                    colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surface
+                        scrolledContainerColor = MaterialTheme.colorScheme.surface,
                     ),
                     scrollBehavior = scrollBehavior,
                     actions = {
                         Row {
-                            TextButton(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        focusManager.clearFocus()
-                                        pagerState.animateScrollToPage(0)
-                                    }
-                                },
-                                colors = ButtonDefaults.textButtonColors(
-                                    contentColor = if (isFirstPage)
-                                        MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                )
-                            ) {
-                                Text(stringResource(R.string.prompt_tab))
-                            }
-                            TextButton(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        focusManager.clearFocus()
-                                        pagerState.animateScrollToPage(1)
-                                    }
-                                },
-                                colors = ButtonDefaults.textButtonColors(
-                                    contentColor = if (isSecondPage)
-                                        MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                )
-                            ) {
-                                Text(stringResource(R.string.result_tab))
-                            }
-                            TextButton(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        focusManager.clearFocus()
-                                        pagerState.animateScrollToPage(2)
-                                    }
-                                },
-                                colors = ButtonDefaults.textButtonColors(
-                                    contentColor = if (pagerState.currentPage == 2)
-                                        MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                )
-                            ) {
-                                Text(stringResource(R.string.history_tab))
+                            val tabs = listOf(
+                                stringResource(R.string.prompt_tab),
+                                stringResource(R.string.result_tab),
+                                stringResource(R.string.history_tab),
+                            )
+                            tabs.forEachIndexed { index, label ->
+                                val selected = pagerState.currentPage == index
+                                TextButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            focusManager.clearFocus()
+                                            pagerState.animateScrollToPage(index)
+                                        }
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(
+                                        contentColor = if (selected) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    ),
+                                ) {
+                                    Text(label)
+                                }
                             }
                         }
-                    }
+                    },
                 )
-            }
+            },
         ) { paddingValues ->
             if (model != null) {
-
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues)
+                        // Mark the Scaffold insets (incl. the navigation bar) as
+                        // consumed so the prompt page's imePadding only reserves the
+                        // remaining IME height, instead of double-counting the nav
+                        // bar and leaving a background strip above the keyboard.
+                        .consumeWindowInsets(paddingValues),
                 ) { page ->
                     when (page) {
                         0 -> PromptPage()
 
-                        1 -> ResultPage()
+                        1 -> ModelRunResultPage(
+                            currentBitmap = currentBitmap,
+                            imageVersion = imageVersion,
+                            generationParams = generationParams,
+                            recentHistory = recentHistory,
+                            showReportButton = BuildConfig.FLAVOR == "filter",
+                            // Upscaling is only offered for the NPU runtime and resolutions <= 1024
+                            showUpscaleButton = !model.runOnCpu &&
+                                generationParams?.let { maxOf(it.width, it.height) <= 1024 } == true,
+                            upscaleEnabled = !isRunning && !isUpscaling && !isUltrafixPreparing,
+                            // Ultrafix takes over where upscaling stops: SDXL
+                            // only (SD1.5 quality was not worth it), restricted
+                            // to DMD2-class few-step checkpoints (detected via
+                            // cfg = 1 - the inversion/injection recipe is tuned
+                            // for that regime), image larger than the upscale
+                            // ceiling, every UNet/VAE tile fitting inside the
+                            // shorter edge, and a backend started with its VAE
+                            // encoder (useImg2img).
+                            showUltrafixButton = useImg2img && model.isSdxl &&
+                                cfg == 1f &&
+                                generationParams?.let {
+                                    maxOf(it.width, it.height) > 1024 &&
+                                        minOf(it.width, it.height) >=
+                                        maxOf(currentWidth, currentHeight, 512)
+                                } == true,
+                            ultrafixEnabled = !isRunning && !isUpscaling && !isUltrafixPreparing,
+                            isFavorite = if (currentDisplayedHistoryId != null) {
+                                displayedFavorite
+                            } else {
+                                null
+                            },
+                            onFavoriteClick = {
+                                val id = currentDisplayedHistoryId
+                                val current = displayedFavorite
+                                if (id != null && current != null) {
+                                    scope.launch(Dispatchers.IO) {
+                                        historyManager.setFavorite(id, !current)
+                                    }
+                                }
+                            },
+                            onReportClick = { showReportDialog = true },
+                            onUpscaleClick = { showUpscalerDialog = true },
+                            onUltrafixClick = { showUltrafixConfirmDialog = true },
+                            onSaveClick = { bitmap ->
+                                handleSaveImage(
+                                    context = context,
+                                    bitmap = bitmap,
+                                    onSuccess = {
+                                        Toast.makeText(
+                                            context,
+                                            msgImageSaved,
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                    onError = { error ->
+                                        Toast.makeText(
+                                            context,
+                                            error,
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                )
+                            },
+                            onPreviewClick = { isPreviewMode = true },
+                            onShowParameters = { showParametersDialog = true },
+                            onHistoryThumbClick = { item ->
+                                scope.launch {
+                                    val bitmap = withContext(Dispatchers.IO) {
+                                        BitmapFactory.decodeFile(item.imageFile.absolutePath)
+                                    }
+                                    if (bitmap != null) {
+                                        currentBitmap = bitmap
+                                        generationParams = item.params
+                                        generationParamsModelId = item.modelId
+                                        currentDisplayedHistoryId = item.id
+                                        imageVersion++
+                                    }
+                                }
+                            },
+                            onGoToGenerate = {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(0)
+                                }
+                            },
+                        )
 
-                        2 -> HistoryPage()
+                        2 -> ModelRunHistoryPage(
+                            historyFilter = historyFilter,
+                            currentModelId = modelId,
+                            pagedItems = pagedHistory,
+                            totalCount = historyTotalCount,
+                            isSelectionMode = isSelectionMode,
+                            selectedIds = selectedIds.toSet(),
+                            isBatchSaving = isBatchSaving,
+                            onFilterChange = { historyFilter = it },
+                            onShowFilterSheet = { showHistoryFilterSheet = true },
+                            onItemClick = { item ->
+                                if (isSelectionMode) {
+                                    // Toggle selection
+                                    if (item.id in selectedIds) {
+                                        selectedIds.remove(item.id)
+                                        if (selectedIds.isEmpty()) {
+                                            isSelectionMode = false
+                                        }
+                                    } else {
+                                        selectedIds.add(item.id)
+                                    }
+                                } else {
+                                    // Normal preview
+                                    selectedHistoryItem = item
+                                    showHistoryDetailDialog = true
+                                }
+                            },
+                            onItemLongClick = { item ->
+                                if (!isSelectionMode) {
+                                    isSelectionMode = true
+                                    selectedIds.clear()
+                                    selectedIds.add(item.id)
+                                }
+                            },
+                            onExitSelection = {
+                                isSelectionMode = false
+                                selectedIds.clear()
+                            },
+                            onToggleSelectAll = {
+                                // Select-all covers every match via an id query,
+                                // not only the loaded pages.
+                                if (historyTotalCount > 0 && selectedIds.size >= historyTotalCount) {
+                                    selectedIds.clear()
+                                    isSelectionMode = false
+                                } else {
+                                    scope.launch {
+                                        val allIds = historyManager.queryIds(historyFilter)
+                                        selectedIds.clear()
+                                        selectedIds.addAll(allIds)
+                                    }
+                                }
+                            },
+                            onBatchSave = { showBatchSaveDialog = true },
+                            onBatchDelete = { showBatchDeleteDialog = true },
+                        )
                     }
                 }
             }
@@ -3617,7 +2446,7 @@ fun ModelRunScreen(
                     imageUriForCrop = null
                     selectedImageUri = null
                     hasOriginalImageForStitch = false
-                }
+                },
             )
         }
         if (showInpaintScreen && croppedBitmap != null) {
@@ -3630,10 +2459,81 @@ fun ModelRunScreen(
                 },
                 onCancel = {
                     showInpaintScreen = false
-                }
+                },
             )
         }
     }
+    if (showReportDialog && currentBitmap != null && generationParams != null) {
+        ModelRunConfirmDialog(
+            title = stringResource(R.string.report),
+            text = stringResource(R.string.report_image_confirm),
+            confirmText = stringResource(R.string.report),
+            dismissText = stringResource(R.string.cancel),
+            destructiveConfirm = true,
+            onConfirm = {
+                showReportDialog = false
+                coroutineScope.launch {
+                    currentBitmap?.let { bitmap ->
+                        reportImage(
+                            bitmap = bitmap,
+                            modelName = model?.name ?: "",
+                            params = generationParams!!,
+                            onSuccess = {
+                                Toast.makeText(
+                                    context,
+                                    msgReportSuccess,
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                            onError = {
+                                Toast.makeText(
+                                    context,
+                                    msgReportFailed,
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                        )
+                    }
+                }
+            },
+            onDismiss = { showReportDialog = false },
+        )
+    }
+
+    if (showParametersDialog && generationParams != null) {
+        GenerationParamsDialog(
+            title = stringResource(R.string.params_detail),
+            params = generationParams!!,
+            modelId = generationParamsModelId,
+            showImg2imgButton = useImg2img,
+            onShare = {
+                shareSourceParams = generationParams
+                shareSourceModelId = generationParamsModelId
+            },
+            onSendToImg2img = {
+                val bmp = currentBitmap
+                if (bmp != null) {
+                    sendBitmapToImg2img(bmp)
+                    showParametersDialog = false
+                } else {
+                    Toast.makeText(
+                        context,
+                        msgNoImageAvailable,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+            onReproduce = {
+                generationParams?.let {
+                    pendingReproduceParams = it
+                    showParametersDialog = false
+                    showReproduceParamsDialog = true
+                }
+            },
+            onDismiss = { showParametersDialog = false },
+        )
+    }
+
     if (isPreviewMode && currentBitmap != null) {
         ZoomableImageOverlay(
             bitmap = currentBitmap,
@@ -3649,216 +2549,240 @@ fun ModelRunScreen(
         )
     }
 
-    // Upscaler dialog
-    if (showUpscalerDialog) {
-        var tempSelectedUpscalerId by remember {
-            mutableStateOf(upscalerPreferences.getString("${modelId}_selected_upscaler", null))
-        }
-        var downloadingUpscalerId by remember { mutableStateOf<String?>(null) }
-        var downloadProgress by remember { mutableStateOf<DownloadProgress?>(null) }
+    // Ultrafix parameter confirmation.
+    if (showUltrafixConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showUltrafixConfirmDialog = false },
+            title = { Text(stringResource(R.string.ultrafix)) },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(stringResource(R.string.ultrafix_confirm_hint))
+                    Text(
+                        stringResource(
+                            R.string.ultrafix_source_info,
+                            currentBitmap?.width ?: 0,
+                            currentBitmap?.height ?: 0,
+                            maxOf(currentWidth, currentHeight),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
 
-        val downloadState by ModelDownloadService.downloadState.collectAsState()
+                    // Independent UltraFix steps (1..20). Lowering steps also
+                    // tightens the denoise-step cap below.
+                    val denoiseStepsMax =
+                        minOf(GenerationDefaults.ULTRAFIX_DENOISE_STEPS_MAX, ultrafixSteps.roundToInt())
+                    Text(
+                        stringResource(R.string.steps, ultrafixSteps.roundToInt()),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Slider(
+                        value = ultrafixSteps,
+                        onValueChange = {
+                            ultrafixSteps = it
+                            val newMax =
+                                minOf(GenerationDefaults.ULTRAFIX_DENOISE_STEPS_MAX, it.roundToInt())
+                            if (ultrafixDenoiseSteps > newMax) ultrafixDenoiseSteps = newMax
+                            saveUltrafixParams()
+                        },
+                        valueRange = GenerationDefaults.ULTRAFIX_STEPS_MIN..GenerationDefaults.ULTRAFIX_STEPS_MAX,
+                        steps = 18,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
 
-        LaunchedEffect(downloadState) {
-            when (val state = downloadState) {
-                is ModelDownloadService.DownloadState.Downloading -> {
-                    val upscaler = upscalerRepository.upscalers.find { it.id == state.modelId }
-                    if (upscaler != null) {
-                        downloadingUpscalerId = upscaler.id
-                        downloadProgress = DownloadProgress(
-                            progress = state.progress,
-                            downloadedBytes = state.downloadedBytes,
-                            totalBytes = state.totalBytes
+                    // Independent UltraFix denoise steps (0..min(10, steps)):
+                    // how many of the total steps actually denoise.
+                    Text(
+                        stringResource(R.string.ultrafix_denoise_steps_label, ultrafixDenoiseSteps),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Slider(
+                        value = ultrafixDenoiseSteps.toFloat(),
+                        onValueChange = {
+                            ultrafixDenoiseSteps = it.roundToInt()
+                            saveUltrafixParams()
+                        },
+                        valueRange = 0f..denoiseStepsMax.toFloat(),
+                        steps = (denoiseStepsMax - 1).coerceAtLeast(0),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    TextButton(
+                        onClick = {
+                            ultrafixSteps = GenerationDefaults.GLOBAL.ultrafixSteps
+                            ultrafixDenoiseSteps = GenerationDefaults.GLOBAL.ultrafixDenoiseSteps
+                            saveUltrafixParams()
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(R.string.ultrafix_restore_defaults))
+                    }
+
+                    Text(
+                        stringResource(R.string.ultrafix_other_params_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // The prompts are only a reminder of what will run; show a
+                    // truncated preview instead of the full text.
+                    fun preview(text: String) = if (text.length > 80) text.take(80) + "..." else text
+                    if (promptField.text.isNotBlank()) {
+                        Text(
+                            stringResource(R.string.image_prompt),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            preview(promptField.text),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (negativePromptField.text.isNotBlank()) {
+                        Text(
+                            stringResource(R.string.negative_prompt),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            preview(negativePromptField.text),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-
-                is ModelDownloadService.DownloadState.Success -> {
-                    upscalerRepository.refreshUpscalerState(state.modelId)
-                    downloadingUpscalerId = null
-                    downloadProgress = null
-                    Toast.makeText(
-                        context,
-                        context.getString(R.string.download_done),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-
-                is ModelDownloadService.DownloadState.Error -> {
-                    downloadingUpscalerId = null
-                    downloadProgress = null
-                    Toast.makeText(
-                        context,
-                        context.getString(R.string.error_download_failed, state.message),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-
-                is ModelDownloadService.DownloadState.Extracting -> {
-                    val upscaler = upscalerRepository.upscalers.find { it.id == state.modelId }
-                    if (upscaler != null) {
-                        downloadingUpscalerId = upscaler.id
-                        downloadProgress = null // Indeterminate progress during extraction
-                    }
-                }
-
-                is ModelDownloadService.DownloadState.Idle -> {
-                    if (downloadingUpscalerId != null && downloadProgress == null) {
-                        downloadingUpscalerId = null
-                    }
-                }
-            }
-        }
-
-        UpscalerSelectDialog(
-            upscalers = upscalerRepository.upscalers,
-            selectedUpscalerId = tempSelectedUpscalerId,
-            downloadingUpscalerId = downloadingUpscalerId,
-            downloadProgress = downloadProgress,
-            onDismiss = { showUpscalerDialog = false },
-            onSelectUpscaler = { upscalerId ->
-                tempSelectedUpscalerId = upscalerId
             },
-            onConfirm = {
-                val selectedUpscaler =
-                    upscalerRepository.upscalers.find { it.id == tempSelectedUpscalerId }
-                if (selectedUpscaler != null && selectedUpscaler.isDownloaded) {
-                    // Save selection
-                    upscalerPreferences.edit {
-                        putString("${modelId}_selected_upscaler", selectedUpscaler.id)
-                    }
-                    showUpscalerDialog = false
-
-                    // Execute upscale
-                    currentBitmap?.let { bitmap ->
-                        isUpscaling = true
-                        scope.launch {
-                            try {
-                                val upscaledBitmap = performUpscale(
-                                    context = context,
-                                    bitmap = bitmap,
-                                    modelId = modelId,
-                                    upscalerId = selectedUpscaler.id
-                                )
-
-                                // Save upscaled image via HistoryManager (DB + JPG file)
-                                generationParams?.let { params ->
-                                    scope.launch(Dispatchers.IO) {
-                                        try {
-                                            val updatedParams = params.copy(
-                                                width = upscaledBitmap.width,
-                                                height = upscaledBitmap.height,
-                                            )
-                                            val sourceMode = selectedHistoryItem?.mode
-                                                ?: GenerationMode.UNKNOWN
-                                            val saved = historyManager.saveGeneratedImage(
-                                                modelId = modelId,
-                                                bitmap = upscaledBitmap,
-                                                params = updatedParams,
-                                                mode = sourceMode,
-                                                upscalerId = selectedUpscaler.id,
-                                            )
-                                            if (saved != null) {
-                                                withContext(Dispatchers.Main) {
-                                                    currentBitmap = upscaledBitmap
-                                                    generationParams = updatedParams
-                                                    generationParamsModelId = modelId
-                                                    currentDisplayedHistoryId = saved.id
-                                                    imageVersion++
-                                                }
-                                            }
-                                        } catch (e: Exception) {
-                                            Log.e(
-                                                "ModelRunScreen",
-                                                "Failed to save upscaled image",
-                                                e
-                                            )
-                                        }
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(
-                                        R.string.upscale_failed,
-                                        e.message ?: "Unknown error"
-                                    ),
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            } finally {
-                                isUpscaling = false
-                            }
-                        }
-                    }
-                } else if (selectedUpscaler != null) {
-                    Toast.makeText(
-                        context,
-                        context.getString(R.string.download_model_first),
-                        Toast.LENGTH_SHORT
-                    ).show()
+            confirmButton = {
+                TextButton(onClick = {
+                    showUltrafixConfirmDialog = false
+                    startUltrafix()
+                }) {
+                    Text(stringResource(R.string.confirm))
                 }
             },
-            onDownload = { upscaler ->
-                downloadingUpscalerId = upscaler.id
-                downloadProgress = null
-                upscaler.startDownload(context)
-            }
+            dismissButton = {
+                TextButton(onClick = { showUltrafixConfirmDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
         )
     }
 
-    AnimatedVisibility(
-        visible = isCheckingBackend,
-        enter = fadeIn(),
-        exit = fadeOut()
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { },
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                CircularProgressIndicator()
-                Text(
-                    stringResource(R.string.loading_model),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
+    // Upscaler dialog
+    if (showUpscalerDialog) {
+        UpscalerPickerFlow(
+            modelId = modelId,
+            upscalerRepository = upscalerRepository,
+            upscalerPreferences = upscalerPreferences,
+            onDismiss = { showUpscalerDialog = false },
+            onUpscalerConfirmed = { selectedUpscaler ->
+                showUpscalerDialog = false
+
+                // Execute upscale
+                currentBitmap?.let { bitmap ->
+                    // If the source image is stitch-eligible (an inpaint result or
+                    // an upscaled copy of one), its upscaled copy is too.
+                    val sourceIsStitchable =
+                        currentDisplayedHistoryId != null &&
+                            currentDisplayedHistoryId in stitchableHistoryIds
+                    isUpscaling = true
+                    scope.launch {
+                        try {
+                            val upscaledBitmap = performUpscale(
+                                context = context,
+                                bitmap = bitmap,
+                                upscalerId = selectedUpscaler.id,
+                            )
+
+                            // Save upscaled image via HistoryManager (DB + JPG file)
+                            generationParams?.let { params ->
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        val updatedParams = params.copy(
+                                            width = upscaledBitmap.width,
+                                            height = upscaledBitmap.height,
+                                        )
+                                        // The displayed image's params carry its
+                                        // generation mode (set on completion and
+                                        // by every history-load path), so the
+                                        // upscaled copy inherits the right one.
+                                        val sourceMode = params.mode
+                                        val saved = historyManager.saveGeneratedImage(
+                                            modelId = modelId,
+                                            bitmap = upscaledBitmap,
+                                            params = updatedParams,
+                                            mode = sourceMode,
+                                            upscalerId = selectedUpscaler.id,
+                                        )
+                                        if (saved != null) {
+                                            withContext(Dispatchers.Main) {
+                                                currentBitmap = upscaledBitmap
+                                                generationParams = updatedParams
+                                                generationParamsModelId = modelId
+                                                currentDisplayedHistoryId = saved.id
+                                                if (sourceIsStitchable) {
+                                                    stitchableHistoryIds =
+                                                        stitchableHistoryIds + saved.id
+                                                }
+                                                imageVersion++
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(
+                                            "ModelRunScreen",
+                                            "Failed to save upscaled image",
+                                            e,
+                                        )
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                context,
+                                msgUpscaleFailed.format(e.message ?: "Unknown error"),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        } finally {
+                            isUpscaling = false
+                        }
+                    }
+                }
+            },
+        )
     }
 
-    // Upscaling overlay
-    if (isUpscaling) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { },
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                CircularProgressIndicator()
-                Text(
-                    stringResource(R.string.upscaling_image),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
+    BlockingProgressOverlay(visible = isCheckingBackend) {
+        ContainedLoadingIndicator()
+        Text(
+            text = stringResource(R.string.loading_model),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+
+    BlockingProgressOverlay(visible = isUpscaling) {
+        ContainedLoadingIndicator()
+        Text(
+            text = stringResource(R.string.upscaling_image),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+
+    BlockingProgressOverlay(visible = isUltrafixPreparing) {
+        ContainedLoadingIndicator()
+        Text(
+            text = stringResource(R.string.ultrafix_preparing),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 
     if (showHistoryFilterSheet) {
@@ -3877,12 +2801,39 @@ fun ModelRunScreen(
 
     // History detail dialog
     if (showHistoryDetailDialog && selectedHistoryItem != null) {
-        val historyBitmap = remember(selectedHistoryItem?.imageFile?.absolutePath) {
-            BitmapFactory.decodeFile(selectedHistoryItem!!.imageFile.absolutePath)
+        val detailImagePath = selectedHistoryItem?.imageFile?.absolutePath
+        val historyBitmap by produceState<Bitmap?>(null, detailImagePath) {
+            value = withContext(Dispatchers.IO) {
+                detailImagePath?.let { BitmapFactory.decodeFile(it) }
+            }
         }
         val dismissDetail = {
             showHistoryDetailDialog = false
             selectedHistoryItem = null
+        }
+        // Same gating as the result page, applied to the previewed item. The
+        // click path loads the item into the result-page state (exactly like
+        // tapping a thumbnail) and reuses the regular upscale/ultrafix flows.
+        val detailItem = selectedHistoryItem
+        val detailIdle = !isRunning && !isUpscaling && !isUltrafixPreparing
+        val detailCanUpscale = historyBitmap != null && detailItem != null &&
+            detailIdle && model?.runOnCpu == false &&
+            maxOf(detailItem.params.width, detailItem.params.height) <= 1024
+        val detailCanUltrafix = historyBitmap != null && detailItem != null &&
+            detailIdle && useImg2img && model?.isSdxl == true && cfg == 1f &&
+            maxOf(detailItem.params.width, detailItem.params.height) > 1024 &&
+            minOf(detailItem.params.width, detailItem.params.height) >=
+            maxOf(currentWidth, currentHeight, 512)
+        val loadDetailIntoResult = fun(): Boolean {
+            val bmp = historyBitmap ?: return false
+            val item = detailItem ?: return false
+            currentBitmap = bmp
+            generationParams = item.params
+            generationParamsModelId = item.modelId
+            currentDisplayedHistoryId = item.id
+            imageVersion++
+            dismissDetail()
+            return true
         }
         ZoomableImageOverlay(
             bitmap = historyBitmap,
@@ -3898,18 +2849,60 @@ fun ModelRunScreen(
                     },
                 )
                 OverlayIconButton(
+                    icon = if (detailItem?.favorite == true) {
+                        Icons.Default.Favorite
+                    } else {
+                        Icons.Default.FavoriteBorder
+                    },
+                    contentDescription = "toggle favorite",
+                    onClick = {
+                        val item = selectedHistoryItem
+                        if (item != null) {
+                            // Keep the dialog's own copy in sync; the grid
+                            // refreshes through the observed flow.
+                            selectedHistoryItem = item.copy(favorite = !item.favorite)
+                            scope.launch(Dispatchers.IO) {
+                                historyManager.setFavorite(item.id, !item.favorite)
+                            }
+                        }
+                    },
+                )
+                if (detailCanUpscale) {
+                    OverlayIconButton(
+                        icon = Icons.Default.AutoFixHigh,
+                        contentDescription = "upscale image",
+                        onClick = {
+                            if (loadDetailIntoResult()) {
+                                showUpscalerDialog = true
+                            }
+                        },
+                    )
+                }
+                if (detailCanUltrafix) {
+                    OverlayIconButton(
+                        icon = Icons.Default.AutoAwesome,
+                        contentDescription = "ultrafix image",
+                        onClick = {
+                            if (loadDetailIntoResult()) {
+                                showUltrafixConfirmDialog = true
+                            }
+                        },
+                    )
+                }
+                OverlayIconButton(
                     icon = Icons.Default.Save,
                     contentDescription = "Save to gallery",
                     onClick = {
-                        if (historyBitmap != null) {
+                        val bitmapToSave = historyBitmap
+                        if (bitmapToSave != null) {
                             scope.launch {
                                 saveImage(
                                     context = context,
-                                    bitmap = historyBitmap,
+                                    bitmap = bitmapToSave,
                                     onSuccess = {
                                         Toast.makeText(
                                             context,
-                                            context.getString(R.string.image_saved),
+                                            msgImageSaved,
                                             Toast.LENGTH_SHORT,
                                         ).show()
                                     },
@@ -3945,18 +2938,22 @@ fun ModelRunScreen(
             onSendToImg2img = {
                 val item = selectedHistoryItem
                 if (item != null) {
-                    val bmp = BitmapFactory.decodeFile(item.imageFile.absolutePath)
-                    if (bmp != null) {
-                        sendBitmapToImg2img(bmp)
-                        showHistoryParametersDialog = false
-                        showHistoryDetailDialog = false
-                        selectedHistoryItem = null
-                    } else {
-                        Toast.makeText(
-                            context,
-                            "Failed to load image",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                    scope.launch {
+                        val bmp = withContext(Dispatchers.IO) {
+                            BitmapFactory.decodeFile(item.imageFile.absolutePath)
+                        }
+                        if (bmp != null) {
+                            sendBitmapToImg2img(bmp)
+                            showHistoryParametersDialog = false
+                            showHistoryDetailDialog = false
+                            selectedHistoryItem = null
+                        } else {
+                            Toast.makeText(
+                                context,
+                                msgImageLoadFailed,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
                     }
                 }
             },
@@ -3976,18 +2973,27 @@ fun ModelRunScreen(
             params = params,
             onApply = { selectedFields ->
                 if (ParamShareField.PROMPT in selectedFields) {
-                    prompt = params.prompt
-                    promptFieldValue = TextFieldValue(prompt, TextRange(prompt.length))
-                    promptSuggestions = emptyList()
+                    promptField.replaceText(params.prompt)
                 }
                 if (ParamShareField.NEGATIVE_PROMPT in selectedFields) {
-                    negativePrompt = params.negativePrompt
-                    negativePromptFieldValue =
-                        TextFieldValue(negativePrompt, TextRange(negativePrompt.length))
-                    negativePromptSuggestions = emptyList()
+                    negativePromptField.replaceText(params.negativePrompt)
                 }
+                // An UltraFix image was produced by the tiled img2img repair pass,
+                // whose steps/denoise live in their own UltraFix variables. Route
+                // the reproduced values there (denoise is stored as a strength but
+                // edited as a step count) instead of the prompt-page settings.
+                val isUltrafixParams = params.mode == GenerationMode.ULTRAFIX
                 if (ParamShareField.STEPS in selectedFields) {
-                    steps = params.steps.toFloat()
+                    if (isUltrafixParams) {
+                        ultrafixSteps = params.steps.toFloat()
+                        val maxDenoiseSteps = minOf(
+                            GenerationDefaults.ULTRAFIX_DENOISE_STEPS_MAX,
+                            ultrafixSteps.roundToInt(),
+                        )
+                        ultrafixDenoiseSteps = ultrafixDenoiseSteps.coerceIn(0, maxDenoiseSteps)
+                    } else {
+                        steps = params.steps.toFloat()
+                    }
                 }
                 if (ParamShareField.CFG in selectedFields) {
                     cfg = params.cfg
@@ -3999,9 +3005,24 @@ fun ModelRunScreen(
                     scheduler = params.scheduler
                 }
                 if (ParamShareField.DENOISE_STRENGTH in selectedFields) {
-                    denoiseStrength = params.denoiseStrength
+                    if (isUltrafixParams) {
+                        // Invert strength = (steps - 0.5) / total -> steps.
+                        val total = params.steps
+                        val maxDenoiseSteps = minOf(
+                            GenerationDefaults.ULTRAFIX_DENOISE_STEPS_MAX,
+                            total,
+                        )
+                        ultrafixDenoiseSteps =
+                            (params.denoiseStrength * total + 0.5f).roundToInt()
+                                .coerceIn(0, maxDenoiseSteps)
+                    } else {
+                        denoiseStrength = params.denoiseStrength
+                    }
                 }
-                if (model?.isSdxl == true) {
+                if (isUltrafixParams) {
+                    saveUltrafixParams()
+                }
+                if (model?.isSdxl == true && useImg2img) {
                     val newRatio = inferAspectRatioString(params.width, params.height)
                     if (newRatio != aspectRatio) {
                         aspectRatio = newRatio
@@ -4029,226 +3050,162 @@ fun ModelRunScreen(
 
     // Delete confirmation dialog
     if (showDeleteHistoryDialog && selectedHistoryItem != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteHistoryDialog = false },
-            title = { Text(stringResource(R.string.delete_image)) },
-            text = { Text(stringResource(R.string.delete_image_confirm)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            val success = historyManager.deleteHistoryItem(
-                                item = selectedHistoryItem!!
-                            )
-                            if (success) {
-                                showDeleteHistoryDialog = false
-                                showHistoryDetailDialog = false
-                                selectedHistoryItem = null
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.deleted),
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            } else {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.delete_failed_message),
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        }
-                    }
-                ) {
-                    Text(
-                        stringResource(R.string.delete),
-                        color = MaterialTheme.colorScheme.error
+        ModelRunConfirmDialog(
+            title = stringResource(R.string.delete_image),
+            text = stringResource(R.string.delete_image_confirm),
+            confirmText = stringResource(R.string.delete),
+            destructiveConfirm = true,
+            onConfirm = {
+                scope.launch {
+                    val success = historyManager.deleteHistoryItem(
+                        item = selectedHistoryItem!!,
                     )
+                    if (success) {
+                        showDeleteHistoryDialog = false
+                        showHistoryDetailDialog = false
+                        selectedHistoryItem = null
+                        Toast.makeText(
+                            context,
+                            msgDeleted,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    } else {
+                        Toast.makeText(
+                            context,
+                            msgDeleteFailedMessage,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteHistoryDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
+            onDismiss = { showDeleteHistoryDialog = false },
         )
     }
 
     // Batch save confirmation dialog
-    if (showBatchSaveDialog && selectedItems.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { showBatchSaveDialog = false },
-            title = { Text(stringResource(R.string.batch_save)) },
-            text = {
-                Text(stringResource(R.string.batch_save_confirm, selectedItems.size))
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val items = selectedItems.toList()
-                        showBatchSaveDialog = false
-                        if (items.isEmpty()) return@TextButton
-                        batchSaveTotal = items.size
-                        batchSaveCurrent = 0
-                        batchSaveFailed = 0
-                        isBatchSaving = true
-                        scope.launch(Dispatchers.IO) {
-                            items.forEach { item ->
-                                var success = false
-                                try {
-                                    val bmp = BitmapFactory.decodeFile(
-                                        item.imageFile.absolutePath
-                                    )
-                                    if (bmp != null) {
-                                        saveImage(
-                                            context = context,
-                                            bitmap = bmp,
-                                            onSuccess = { success = true },
-                                            onError = { }
-                                        )
-                                    }
-                                } catch (_: Exception) {
-                                    // counted as failure
-                                }
-                                withContext(Dispatchers.Main) {
-                                    batchSaveCurrent += 1
-                                    if (!success) batchSaveFailed += 1
-                                }
-                            }
+    if (showBatchSaveDialog && selectedIds.isNotEmpty()) {
+        ModelRunConfirmDialog(
+            title = stringResource(R.string.batch_save),
+            text = pluralStringResource(
+                R.plurals.batch_save_confirm,
+                selectedIds.size,
+                selectedIds.size,
+            ),
+            confirmText = stringResource(R.string.yes),
+            onConfirm = {
+                val ids = selectedIds.toList()
+                showBatchSaveDialog = false
+                if (ids.isNotEmpty()) {
+                    batchSaveTotal = ids.size
+                    batchSaveCurrent = 0
+                    batchSaveFailed = 0
+                    isBatchSaving = true
+                    scope.launch(Dispatchers.IO) {
+                        // Resolve ids to items; any gone-missing counts as failed.
+                        val items = historyManager.getItems(ids)
+                        val missing = ids.size - items.size
+                        if (missing > 0) {
                             withContext(Dispatchers.Main) {
-                                val total = batchSaveTotal
-                                val failed = batchSaveFailed
-                                val saved = total - failed
-                                val message = if (failed == 0) {
-                                    context.getString(R.string.saved_count, saved)
-                                } else {
-                                    context.getString(
-                                        R.string.saved_count_with_failed,
-                                        saved,
-                                        failed
-                                    )
-                                }
-                                Toast.makeText(
-                                    context,
-                                    message,
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                isBatchSaving = false
-                                selectedItems.clear()
-                                isSelectionMode = false
+                                batchSaveFailed += missing
+                                batchSaveCurrent += missing
                             }
                         }
+                        items.forEach { item ->
+                            var success = false
+                            if (item.imageFile.exists()) {
+                                saveImageFromFile(
+                                    context = context,
+                                    sourceFile = item.imageFile,
+                                    onSuccess = { success = true },
+                                    onError = { },
+                                )
+                            }
+                            withContext(Dispatchers.Main) {
+                                batchSaveCurrent += 1
+                                if (!success) batchSaveFailed += 1
+                            }
+                        }
+                        withContext(Dispatchers.Main) {
+                            val total = batchSaveTotal
+                            val failed = batchSaveFailed
+                            val saved = total - failed
+                            val message = if (failed == 0) {
+                                resources.getQuantityString(
+                                    R.plurals.saved_count,
+                                    saved,
+                                    saved,
+                                )
+                            } else {
+                                msgSavedCountWithFailed.format(saved, failed)
+                            }
+                            Toast.makeText(
+                                context,
+                                message,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            isBatchSaving = false
+                            selectedIds.clear()
+                            isSelectionMode = false
+                        }
                     }
-                ) {
-                    Text(stringResource(R.string.yes))
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showBatchSaveDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
+            onDismiss = { showBatchSaveDialog = false },
         )
     }
 
     // Batch save progress dialog (modal — blocks other interactions)
     if (isBatchSaving) {
-        AlertDialog(
-            onDismissRequest = { /* not dismissable */ },
-            properties = androidx.compose.ui.window.DialogProperties(
-                dismissOnBackPress = false,
-                dismissOnClickOutside = false
-            ),
-            title = { Text(stringResource(R.string.batch_save)) },
-            text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        stringResource(
-                            R.string.batch_saving_progress,
-                            batchSaveCurrent,
-                            batchSaveTotal
-                        ),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    val saveProgress = if (batchSaveTotal > 0)
-                        batchSaveCurrent.toFloat() / batchSaveTotal else 0f
-                    LinearProgressIndicator(
-                        progress = saveProgress,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {}
-        )
+        BatchSaveProgressDialog(current = batchSaveCurrent, total = batchSaveTotal)
     }
 
     // Batch delete confirmation dialog
-    if (showBatchDeleteDialog && selectedItems.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { showBatchDeleteDialog = false },
-            title = { Text(stringResource(R.string.batch_delete)) },
-            text = { Text(stringResource(R.string.batch_delete_confirm, selectedItems.size)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            val itemsToDelete = selectedItems.toList()
-                            var successCount = 0
-                            var failCount = 0
+    if (showBatchDeleteDialog && selectedIds.isNotEmpty()) {
+        ModelRunConfirmDialog(
+            title = stringResource(R.string.batch_delete),
+            text = pluralStringResource(
+                R.plurals.batch_delete_confirm,
+                selectedIds.size,
+                selectedIds.size,
+            ),
+            confirmText = stringResource(R.string.delete),
+            destructiveConfirm = true,
+            onConfirm = {
+                val ids = selectedIds.toList()
+                showBatchDeleteDialog = false
+                scope.launch {
+                    val itemsToDelete = historyManager.getItems(ids)
+                    val successCount = historyManager.deleteHistoryItems(itemsToDelete)
+                    val failCount = ids.size - successCount
 
-                            itemsToDelete.forEach { item ->
-                                val success = historyManager.deleteHistoryItem(
-                                    item = item
-                                )
-                                if (success) {
-                                    successCount++
-                                } else {
-                                    failCount++
-                                }
-                            }
+                    selectedIds.clear()
+                    isSelectionMode = false
 
-                            selectedItems.clear()
-                            isSelectionMode = false
-                            showBatchDeleteDialog = false
-
-                            val message = if (failCount == 0) {
-                                context.getString(R.string.deleted_count, successCount)
-                            } else {
-                                context.getString(
-                                    R.string.deleted_count_with_failed,
-                                    successCount,
-                                    failCount
-                                )
-                            }
-                            Toast.makeText(
-                                context,
-                                message,
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
+                    val message = if (failCount == 0) {
+                        resources.getQuantityString(
+                            R.plurals.deleted_count,
+                            successCount,
+                            successCount,
+                        )
+                    } else {
+                        msgDeletedCountWithFailed.format(successCount, failCount)
                     }
-                ) {
-                    Text(
-                        stringResource(R.string.delete),
-                        color = MaterialTheme.colorScheme.error
-                    )
+                    Toast.makeText(
+                        context,
+                        message,
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showBatchDeleteDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
+            onDismiss = { showBatchDeleteDialog = false },
         )
     }
 
     // Detect shared params on the clipboard once the model is ready.
     LaunchedEffect(backendState, hasInitialized) {
-        if (!clipboardImportChecked
-            && hasInitialized
-            && backendState is BackendService.BackendState.Running
+        if (!clipboardImportChecked &&
+            hasInitialized &&
+            backendState is BackendService.BackendState.Running
         ) {
             clipboardImportChecked = true
             val clipboard =
@@ -4264,74 +3221,18 @@ fun ModelRunScreen(
 
     // Share parameters dialog
     shareSourceParams?.let { source ->
-        val available = remember(source) {
-            val list = mutableListOf<ParamShareField>()
-            list += ParamShareField.PROMPT
-            list += ParamShareField.NEGATIVE_PROMPT
-            list += ParamShareField.STEPS
-            list += ParamShareField.CFG
-            if (source.seed != null) list += ParamShareField.SEED
-            list += ParamShareField.SCHEDULER
-            if (source.mode != GenerationMode.UNKNOWN
-                && source.mode != GenerationMode.TXT2IMG
-            ) {
-                list += ParamShareField.DENOISE_STRENGTH
-            }
-            list
-        }
-        ShareParametersDialog(
-            availableFields = available,
-            fieldPreview = { field ->
-                when (field) {
-                    ParamShareField.PROMPT -> source.prompt
-                    ParamShareField.NEGATIVE_PROMPT -> source.negativePrompt
-                    ParamShareField.STEPS -> source.steps.toString()
-                    ParamShareField.CFG -> "%.1f".format(source.cfg)
-                    ParamShareField.SEED -> source.seed?.toString()
-                    ParamShareField.SCHEDULER -> when (source.scheduler) {
-                        "dpm" -> "DPM++ 2M"
-                        "dpm_karras" -> "DPM++ 2M Karras"
-                        "euler_a" -> "Euler A"
-                        "euler_a_karras" -> "Euler A Karras"
-                        "lcm" -> "LCM"
-                        "euler" -> "Euler"
-                        "euler_karras" -> "Euler Karras"
-                        "dpm_sde" -> "DPM++ 2M SDE"
-                        "dpm_sde_karras" -> "DPM++ 2M SDE Karras"
-                        else -> source.scheduler
-                    }
-
-                    ParamShareField.DENOISE_STRENGTH ->
-                        "%.2f".format(source.denoiseStrength)
-
-                    ParamShareField.MODE -> source.mode.name.lowercase()
-                }
-            },
+        ShareParamsFlow(
+            source = source,
+            modelId = shareSourceModelId,
             useBase64Initial = shareUseBase64,
             onUseBase64Changed = { value ->
                 scope.launch { generationPreferences.setShareUseBase64(value) }
             },
-            onConfirm = { selectedFields, useBase64 ->
-                val json = ParamShare.buildJson(source, shareSourceModelId, selectedFields)
-                val payload = ParamShare.encodeForClipboard(json, useBase64)
-                val clipboard =
-                    context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                clipboard?.setPrimaryClip(
-                    ClipData.newPlainText("Local Dream params", payload)
-                )
-                clipboardImportChecked = true
-                shareSourceParams = null
-                shareSourceModelId = null
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.share_copied),
-                    Toast.LENGTH_SHORT
-                ).show()
-            },
+            onCopied = { clipboardImportChecked = true },
             onDismiss = {
                 shareSourceParams = null
                 shareSourceModelId = null
-            }
+            },
         )
     }
 
@@ -4340,13 +3241,11 @@ fun ModelRunScreen(
         val clearClipboardAction = {
             val clipboard =
                 context.getSystemService(Context.CLIPBOARD_SERVICE)
-                        as? ClipboardManager
+                    as? ClipboardManager
             runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    clipboard?.clearPrimaryClip()
-                } else {
-                    clipboard?.setPrimaryClip(ClipData.newPlainText("", ""))
-                }
+                // Build.VERSION_CODES.P is API 28, minSdk = 28, so the legacy
+                // setPrimaryClip(empty) fallback is unreachable.
+                clipboard?.clearPrimaryClip()
             }
         }
         ImportParametersDialog(
@@ -4359,19 +3258,10 @@ fun ModelRunScreen(
             },
             onApply = { selectedFields, clearClipboard ->
                 if (ParamShareField.PROMPT in selectedFields) {
-                    imported.prompt?.let {
-                        prompt = it
-                        promptFieldValue = TextFieldValue(it, TextRange(it.length))
-                        promptSuggestions = emptyList()
-                    }
+                    imported.prompt?.let { promptField.replaceText(it) }
                 }
                 if (ParamShareField.NEGATIVE_PROMPT in selectedFields) {
-                    imported.negativePrompt?.let {
-                        negativePrompt = it
-                        negativePromptFieldValue =
-                            TextFieldValue(it, TextRange(it.length))
-                        negativePromptSuggestions = emptyList()
-                    }
+                    imported.negativePrompt?.let { negativePromptField.replaceText(it) }
                 }
                 if (ParamShareField.STEPS in selectedFields) {
                     imported.steps?.let { steps = it.toFloat() }
@@ -4395,8 +3285,8 @@ fun ModelRunScreen(
                 pendingImport = null
                 Toast.makeText(
                     context,
-                    context.getString(R.string.import_applied),
-                    Toast.LENGTH_SHORT
+                    msgImportApplied,
+                    Toast.LENGTH_SHORT,
                 ).show()
             },
             onDismiss = { clearClipboard ->
@@ -4404,147 +3294,18 @@ fun ModelRunScreen(
                     clearClipboardAction()
                 }
                 pendingImport = null
-            }
+            },
         )
     }
 }
 
 @Composable
-fun UpscalerSelectDialog(
-    upscalers: List<UpscalerModel>,
-    selectedUpscalerId: String?,
-    downloadingUpscalerId: String?,
-    downloadProgress: DownloadProgress?,
-    onDismiss: () -> Unit,
-    onSelectUpscaler: (String) -> Unit,
-    onConfirm: () -> Unit,
-    onDownload: (UpscalerModel) -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.select_upscaler_model)) },
-        text = {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(upscalers) { upscaler ->
-                    UpscalerModelCard(
-                        upscaler = upscaler,
-                        isSelected = upscaler.id == selectedUpscalerId,
-                        isDownloading = upscaler.id == downloadingUpscalerId,
-                        downloadProgress = if (upscaler.id == downloadingUpscalerId) downloadProgress else null,
-                        onSelect = { onSelectUpscaler(upscaler.id) },
-                        onDownload = { onDownload(upscaler) }
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onDismiss) {
-                    Text(stringResource(R.string.cancel))
-                }
-                Button(
-                    onClick = onConfirm,
-                    enabled = selectedUpscalerId != null
-                ) {
-                    Text(stringResource(R.string.confirm))
-                }
-            }
-        }
-    )
-}
-
-@Composable
-fun UpscalerModelCard(
-    upscaler: UpscalerModel,
-    isSelected: Boolean,
-    isDownloading: Boolean,
-    downloadProgress: DownloadProgress?,
-    onSelect: () -> Unit,
-    onDownload: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onSelect() },
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-        ),
-        border = if (isSelected) {
-            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-        } else {
-            null
-        }
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = upscaler.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = upscaler.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                if (isDownloading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp
-                    )
-                } else if (!upscaler.isDownloaded) {
-                    FilledTonalButton(onClick = onDownload) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = stringResource(R.string.download),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(stringResource(R.string.download))
-                    }
-                } else if (isSelected) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "selected",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            // Show progress bar when downloading
-            if (isDownloading && downloadProgress != null) {
-                LinearProgressIndicator(
-                    progress = downloadProgress.progress,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 16.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PromptCountLabel(label: String, count: Int, max: Int) {
+private fun PromptCountLabel(label: String, count: Int, max: Int, showCount: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label)
-        Spacer(Modifier.width(6.dp))
-        Text("$count/$max")
+        if (showCount) {
+            Spacer(Modifier.width(6.dp))
+            Text("$count/$max")
+        }
     }
 }

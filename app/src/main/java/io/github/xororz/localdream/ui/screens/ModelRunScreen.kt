@@ -282,6 +282,7 @@ fun ModelRunScreen(modelId: String, navController: NavController, modifier: Modi
     var batchSaveCurrent by remember { mutableIntStateOf(0) }
     var batchSaveFailed by remember { mutableIntStateOf(0) }
 
+    var dynamicprompt by remember { mutableStateOf("")}
     var generationParamsTmp by remember {
         mutableStateOf(
             GenerationParameters(
@@ -1756,11 +1757,24 @@ fun ModelRunScreen(modelId: String, navController: NavController, modifier: Modi
                                     "ModelRunScreen",
                                     "start generation",
                                 )
+
+                                dynamicprompt = promptField.text
+                                while (dynamicprompt.indexOf("{") > -1) {
+                                    val startindex = dynamicprompt.indexOf("{") + 1
+                                    val endindex = dynamicprompt.indexOf("}", startindex)
+                                    if (endindex == -1) break
+                                    val tmpprompt = dynamicprompt.substring(startindex, endindex)
+                                    val tpSplitList = tmpprompt.split("|")
+                                    val range = (0..tpSplitList.size - 1)
+                                    val selectnum = range.random()
+                                    dynamicprompt = dynamicprompt.replace("{" + tmpprompt + "}",tpSplitList[selectnum])
+                                }
+
                                 generationParamsTmp = GenerationParameters(
                                     steps = steps.roundToInt(),
                                     cfg = cfg,
                                     seed = 0,
-                                    prompt = promptField.text,
+                                    prompt = dynamicprompt,
                                     negativePrompt = negativePromptField.text,
                                     generationTime = "",
                                     width = currentWidth,
@@ -1788,13 +1802,25 @@ fun ModelRunScreen(modelId: String, navController: NavController, modifier: Modi
                                             "preparing batch $i",
                                         )
 
+                                        dynamicprompt = promptField.text
+                                        while (dynamicprompt.indexOf("{") > -1) {
+                                            val startindex = dynamicprompt.indexOf("{") + 1
+                                            val endindex = dynamicprompt.indexOf("}", startindex)
+                                            if (endindex == -1) break
+                                            val tmpprompt = dynamicprompt.substring(startindex, endindex)
+                                            val tpSplitList = tmpprompt.split("|")
+                                            val range = (0..tpSplitList.size - 1)
+                                            val selectnum = range.random()
+                                            dynamicprompt = dynamicprompt.replace("{" + tmpprompt + "}",tpSplitList[selectnum])
+                                        }
+
                                         // Update generationParamsTmp to reflect current parameters
                                         // This allows parameters to be changed during batch execution
                                         generationParamsTmp = GenerationParameters(
                                             steps = steps.roundToInt(),
                                             cfg = cfg,
                                             seed = 0,
-                                            prompt = promptField.text,
+                                            prompt = dynamicprompt,
                                             negativePrompt = negativePromptField.text,
                                             generationTime = "",
                                             width = currentWidth,
@@ -1809,7 +1835,7 @@ fun ModelRunScreen(modelId: String, navController: NavController, modifier: Modi
                                             context,
                                             BackgroundGenerationService::class.java,
                                         ).apply {
-                                            putExtra("prompt", promptField.text)
+                                            putExtra("prompt", dynamicprompt)
                                             putExtra(
                                                 "negative_prompt",
                                                 negativePromptField.text,

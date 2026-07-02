@@ -312,8 +312,8 @@ internal fun AdvancedSettingsDialog(
                     Slider(
                         value = cfg,
                         onValueChange = onCfgChange,
-                        valueRange = 1f..30f,
-                        steps = 57,
+                        valueRange = 1f..10f,
+                        steps = 89,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
